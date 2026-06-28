@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "FlowSpace",
+  "version": "0.0.0",
+  "identifier": "com.flowspace.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "FlowSpace",
+        "width": 800,
+        "height": 600,
+        "decorations": true,
+        "transparent": false,
+        "resizable": true,
+        "visible": true,
+        "alwaysOnTop": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "icon": []
+  }
+}

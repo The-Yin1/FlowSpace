@@ -1,0 +1,10 @@
+/Users/code/java/github/FlowSpace/src-tauri/target/debug/deps/idna-94489c7cdbbd225a.d: /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/lib.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/deprecated.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/punycode.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/uts46.rs
+
+/Users/code/java/github/FlowSpace/src-tauri/target/debug/deps/libidna-94489c7cdbbd225a.rlib: /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/lib.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/deprecated.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/punycode.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/uts46.rs
+
+/Users/code/java/github/FlowSpace/src-tauri/target/debug/deps/libidna-94489c7cdbbd225a.rmeta: /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/lib.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/deprecated.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/punycode.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/uts46.rs
+
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/lib.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/deprecated.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/punycode.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/idna-1.1.0/src/uts46.rs:

@@ -1,0 +1,8 @@
+/Users/code/java/github/FlowSpace/src-tauri/target/debug/deps/serde_with_macros-5183c92952b94b06.d: /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/lib.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/apply.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/lazy_bool.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/utils.rs
+
+/Users/code/java/github/FlowSpace/src-tauri/target/debug/deps/libserde_with_macros-5183c92952b94b06.dylib: /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/lib.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/apply.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/lazy_bool.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/utils.rs
+
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/lib.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/apply.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/lazy_bool.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/serde_with_macros-3.21.0/src/utils.rs:

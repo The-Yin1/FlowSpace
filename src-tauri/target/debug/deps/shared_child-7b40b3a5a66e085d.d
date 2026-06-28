@@ -1,0 +1,8 @@
+/Users/code/java/github/FlowSpace/src-tauri/target/debug/deps/shared_child-7b40b3a5a66e085d.d: /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/lib.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/sys/mod.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/sys/unix.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/unix.rs
+
+/Users/code/java/github/FlowSpace/src-tauri/target/debug/deps/libshared_child-7b40b3a5a66e085d.rmeta: /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/lib.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/sys/mod.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/sys/unix.rs /Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/unix.rs
+
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/lib.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/sys/mod.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/sys/unix.rs:
+/Users/duanhanyao/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-e791a3f93f26854f/shared_child-1.1.1/src/unix.rs:
