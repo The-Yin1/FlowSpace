@@ -1,9 +1,24 @@
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AudioManager } from './audio/AudioManager';
+import { AudioManager, type WeatherAmbience } from './audio/AudioManager';
 import { VisualManager } from './visual/VisualManager';
 
 const audioManager = new AudioManager();
 let visualManager: VisualManager | null = null;
+
+type StartupWeather = {
+  latitude: number;
+  longitude: number;
+  city: string;
+  country: string;
+  temperatureC: number;
+  weatherCode: number;
+  isDay: boolean;
+  windSpeedMps: number;
+  ambience: WeatherAmbience;
+  source: string;
+  locationSource: string;
+};
 
 function createUI() {
   const app = document.getElementById('app') as HTMLDivElement;
@@ -108,6 +123,66 @@ function createUI() {
   }
 }
 
+function setupRenderLifecycle() {
+  const syncRenderingState = () => {
+    if (!visualManager) {
+      return;
+    }
+
+    const shouldRender = !document.hidden && document.hasFocus();
+    visualManager.setRenderingActive(shouldRender);
+  };
+
+  document.addEventListener('visibilitychange', syncRenderingState);
+  window.addEventListener('blur', syncRenderingState);
+  window.addEventListener('focus', syncRenderingState);
+  syncRenderingState();
+}
+
+async function loadStartupWeather(isTauri: boolean) {
+  if (!isTauri) {
+    audioManager.setWeatherAmbience('wind');
+    return;
+  }
+
+  try {
+    const coordinates = await getUserCoordinates();
+    const weather = await invoke<StartupWeather>('fetch_startup_weather', coordinates ?? {});
+    audioManager.setWeatherAmbience(weather.ambience);
+    console.log(
+      `🌦️ Startup weather loaded: ${weather.city}, ${weather.country} | ${weather.ambience} | code=${weather.weatherCode} | temp=${weather.temperatureC.toFixed(1)}C | locationSource=${weather.locationSource}`,
+    );
+  } catch (error) {
+    console.error('❌ Startup weather fetch failed, fallback to wind ambience:', error);
+    audioManager.setWeatherAmbience('wind');
+  }
+}
+
+async function getUserCoordinates(): Promise<{ latitude: number; longitude: number } | null> {
+  if (!('geolocation' in navigator)) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      () => {
+        resolve(null);
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 3000,
+        maximumAge: 30 * 60 * 1000,
+      },
+    );
+  });
+}
+
 function updateEnergy(energy: number) {
   const energyElement = document.getElementById('energyValue');
   if (energyElement) {
@@ -126,10 +201,12 @@ async function main() {
   document.body.style.background = '#050505';
 
   createUI();
+  setupRenderLifecycle();
 
   const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__;
 
   console.log('🔍 isTauri:', isTauri);
+  await loadStartupWeather(Boolean(isTauri));
 
   if (isTauri) {
     console.log('✅ 检测到 Tauri 环境，连接 Rust 后端...');

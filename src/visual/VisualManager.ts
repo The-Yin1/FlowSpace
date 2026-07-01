@@ -36,6 +36,8 @@ export class VisualManager {
   private shockwaveProgress: number = 0;
   private isShockwaveActive: boolean = false;
   private originalStarPositions!: Float32Array;
+  private animationFrameId: number | null = null;
+  private renderingActive = true;
 
   constructor(container: HTMLElement, onPhaseChange?: (phase: ScenePhase) => void) {
     this.onPhaseChange = onPhaseChange;
@@ -72,7 +74,25 @@ export class VisualManager {
       this.composer.setSize(container.clientWidth, container.clientHeight);
     });
 
-    this.animate();
+    this.startRenderLoop();
+  }
+
+  setRenderingActive(active: boolean) {
+    if (this.renderingActive === active) {
+      return;
+    }
+
+    this.renderingActive = active;
+
+    if (active) {
+      this.startRenderLoop();
+      return;
+    }
+
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
   }
 
   private createStarTexture(): THREE.CanvasTexture {
@@ -258,8 +278,19 @@ export class VisualManager {
     this.targetEnergy = energy;
   }
 
+  private startRenderLoop() {
+    if (!this.renderingActive || this.animationFrameId !== null) {
+      return;
+    }
+
+    this.animationFrameId = window.requestAnimationFrame(() => this.animate());
+  }
+
   private animate() {
-    requestAnimationFrame(() => this.animate());
+    this.animationFrameId = null;
+    if (!this.renderingActive) {
+      return;
+    }
 
     const time = Date.now() * 0.001;
     const lerpFactor = 0.08;
@@ -274,6 +305,7 @@ export class VisualManager {
     }
 
     this.composer.render();
+    this.startRenderLoop();
   }
 
   private animateWelcomePhase(time: number) {
