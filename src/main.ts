@@ -1,10 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AudioManager, type WeatherAmbience } from './audio/AudioManager';
+import {
+  AudioManager,
+  type AudioConfig,
+  type AudioSourceType,
+  type WeatherAmbience,
+} from './audio/AudioManager';
 import { VisualManager } from './visual/VisualManager';
 
 const audioManager = new AudioManager();
 let visualManager: VisualManager | null = null;
+let startupWeather: StartupWeather | null = null;
+let audioConfig: AudioConfig = {
+  sourceType: 'weather',
+  customWeatherParam: '',
+};
 
 type StartupWeather = {
   latitude: number;
@@ -56,6 +66,44 @@ function createUI() {
         padding: 32px;
         opacity: 0;
         transition: opacity 0.5s ease;
+      }
+
+      .fs-hud {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        z-index: 14;
+        pointer-events: auto;
+      }
+
+      .fs-settings-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 46px;
+        height: 46px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 1.15rem;
+        cursor: pointer;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+        transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .fs-settings-button:hover {
+        color: rgba(255, 255, 255, 0.88);
+        background: rgba(255, 255, 255, 0.14);
+        transform: translateY(-1px);
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28), 0 0 24px rgba(0, 240, 255, 0.14);
+      }
+
+      .fs-settings-button:focus-visible {
+        outline: 2px solid rgba(0, 240, 255, 0.4);
+        outline-offset: 4px;
       }
 
       .fs-panel {
@@ -169,6 +217,14 @@ function createUI() {
         box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
       }
 
+      .fs-audio-status {
+        margin-top: -2px;
+        font-size: 0.8rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.38);
+      }
+
       #audioBtnContainer {
         margin-top: 10px;
         pointer-events: auto;
@@ -218,9 +274,263 @@ function createUI() {
         filter: saturate(0) brightness(0.2);
       }
 
+      .fs-settings-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 18;
+        background: rgba(3, 5, 10, 0.28);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+
+      .fs-settings-backdrop.is-open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .fs-settings-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(420px, calc(100vw - 20px));
+        height: 100vh;
+        z-index: 20;
+        padding: 28px 24px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(10, 11, 16, 0.5);
+        backdrop-filter: blur(25px) saturate(125%);
+        -webkit-backdrop-filter: blur(25px) saturate(125%);
+        box-shadow: -24px 0 60px rgba(0, 0, 0, 0.28);
+        transform: translateX(100%);
+        transition: transform 0.34s cubic-bezier(0.4, 0, 0.2, 1);
+        pointer-events: auto;
+      }
+
+      .fs-settings-panel::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .fs-settings-panel::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .fs-settings-panel::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      .fs-settings-panel::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.22);
+      }
+
+      .fs-settings-panel.is-open {
+        transform: translateX(0);
+      }
+
+      .fs-settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .fs-settings-heading {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 500;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.86);
+      }
+
+      .fs-settings-close {
+        width: 38px;
+        height: 38px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(255, 255, 255, 0.74);
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.25s ease;
+      }
+
+      .fs-settings-close:hover {
+        background: rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.96);
+      }
+
+      .fs-settings-copy {
+        margin: 0;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .fs-settings-section {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.03);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+
+      .fs-settings-section-title {
+        margin: 0;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+      }
+
+      .fs-settings-section-hint {
+        margin: -4px 0 0;
+        font-size: 0.84rem;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.46);
+      }
+
+      .fs-radio-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .fs-radio-option {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        padding: 14px 14px 14px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        transition: all 0.24s ease;
+        cursor: pointer;
+      }
+
+      .fs-radio-option:hover {
+        border-color: rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .fs-radio-option input {
+        margin-top: 2px;
+        accent-color: #8ff7ff;
+      }
+
+      .fs-radio-text {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .fs-radio-label {
+        font-size: 0.93rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.92);
+      }
+
+      .fs-radio-description {
+        font-size: 0.82rem;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.48);
+      }
+
+      .fs-field {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .fs-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.42);
+      }
+
+      .fs-input {
+        width: 100%;
+        padding: 14px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.92);
+        font: inherit;
+        outline: none;
+        transition: all 0.24s ease;
+      }
+
+      .fs-input::placeholder {
+        color: rgba(255, 255, 255, 0.28);
+      }
+
+      .fs-input:focus {
+        border-color: rgba(0, 240, 255, 0.28);
+        box-shadow: 0 0 0 4px rgba(0, 240, 255, 0.08);
+      }
+
+      .fs-input:disabled {
+        opacity: 0.42;
+        cursor: not-allowed;
+      }
+
+      .fs-settings-footer {
+        margin-top: auto;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+      }
+
+      .fs-button-secondary,
+      .fs-button-primary {
+        border: none;
+        border-radius: 999px;
+        padding: 12px 20px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .fs-button-secondary {
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      .fs-button-secondary:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      .fs-button-primary {
+        background: rgba(255, 255, 255, 0.92);
+        color: #090b12;
+        box-shadow: 0 10px 30px rgba(255, 255, 255, 0.12), 0 0 24px rgba(0, 240, 255, 0.14);
+      }
+
+      .fs-button-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 34px rgba(255, 255, 255, 0.14), 0 0 30px rgba(0, 240, 255, 0.18);
+      }
+
       @media (max-width: 640px) {
         #uiOverlay {
           padding: 20px;
+        }
+
+        .fs-hud {
+          top: 18px;
+          right: 18px;
         }
 
         .fs-panel {
@@ -239,6 +549,20 @@ function createUI() {
         }
 
         .fs-audio-button {
+          width: 100%;
+        }
+
+        .fs-settings-panel {
+          width: 100vw;
+          padding: 24px 16px 18px;
+        }
+
+        .fs-settings-footer {
+          flex-direction: column-reverse;
+        }
+
+        .fs-button-secondary,
+        .fs-button-primary {
           width: 100%;
         }
       }
@@ -260,6 +584,11 @@ function createUI() {
       z-index: 10;
       opacity: 0;
     ">
+      <div class="fs-hud">
+        <button id="settingsToggleBtn" class="fs-settings-button" type="button" aria-label="打开设置">
+          ⚙
+        </button>
+      </div>
       <div class="fs-panel">
         <div class="fs-panel-content">
           <h1 class="fs-title">FlowSpace</h1>
@@ -271,6 +600,7 @@ function createUI() {
             <span class="fs-meta-dot"></span>
             <span>Realtime Signal</span>
           </div>
+          <div id="audioModeStatus" class="fs-audio-status">智能天气音 · 自动定位</div>
           <div id="audioBtnContainer">
             <button id="startAudioBtn" class="fs-audio-button">
               <span class="fs-audio-icon">◉</span>
@@ -279,6 +609,62 @@ function createUI() {
           </div>
         </div>
       </div>
+      <div id="settingsBackdrop" class="fs-settings-backdrop"></div>
+      <aside id="settingsPanel" class="fs-settings-panel" aria-hidden="true">
+        <div class="fs-settings-header">
+          <h2 class="fs-settings-heading">Configuration</h2>
+          <button id="settingsCloseBtn" class="fs-settings-close" type="button" aria-label="关闭设置">✕</button>
+        </div>
+        <p class="fs-settings-copy">
+          配置背景环境音来源，并在不打断当前氛围的前提下平滑切换。
+        </p>
+
+        <section class="fs-settings-section">
+          <h3 class="fs-settings-section-title">系统环境音</h3>
+          <p class="fs-settings-section-hint">
+            在默认白噪音和基于天气的环境画像之间切换。
+          </p>
+          <div class="fs-radio-list">
+            <label class="fs-radio-option">
+              <input type="radio" name="audioSourceType" value="default" />
+              <span class="fs-radio-text">
+                <span class="fs-radio-label">默认白噪音</span>
+                <span class="fs-radio-description">纯净、中性、适合长时间专注的基础底噪。</span>
+              </span>
+            </label>
+            <label class="fs-radio-option">
+              <input type="radio" name="audioSourceType" value="weather" />
+              <span class="fs-radio-text">
+                <span class="fs-radio-label">智能天气音</span>
+                <span class="fs-radio-description">优先使用定位城市的天气画像，可手动覆盖为指定城市或天气。</span>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section class="fs-settings-section">
+          <h3 class="fs-settings-section-title">自定义天气音</h3>
+          <p class="fs-settings-section-hint">
+            输入城市或天气类型，例如“北京”、“东京”、“大雨”或“雷暴”。
+          </p>
+          <div class="fs-field">
+            <label for="customWeatherInput" class="fs-label">覆盖参数</label>
+            <input
+              id="customWeatherInput"
+              class="fs-input"
+              type="text"
+              placeholder="例如：北京 / 东京 / 大雨 / 雷暴"
+              maxlength="40"
+            />
+          </div>
+          <p id="weatherPanelHint" class="fs-settings-section-hint"></p>
+        </section>
+
+        <div class="fs-settings-footer">
+          <button id="settingsCancelBtn" class="fs-button-secondary" type="button">取消</button>
+          <button id="settingsSaveBtn" class="fs-button-primary" type="button">保存设置</button>
+        </div>
+      </aside>
     </div>
   `;
 
@@ -298,6 +684,7 @@ function createUI() {
   if (btn) {
     btn.addEventListener('click', async () => {
       console.log('🎵 Clicked start audio');
+      audioManager.setAudioConfig(audioConfig);
       await audioManager.start();
       const btnContainer = document.getElementById('audioBtnContainer');
       if (btnContainer) {
@@ -305,6 +692,122 @@ function createUI() {
       }
     });
   }
+
+  bindSettingsPanelEvents();
+  syncSettingsUI();
+}
+
+function setSettingsOpen(isOpen: boolean) {
+  const panel = document.getElementById('settingsPanel');
+  const backdrop = document.getElementById('settingsBackdrop');
+
+  if (!panel || !backdrop) {
+    return;
+  }
+
+  panel.classList.toggle('is-open', isOpen);
+  backdrop.classList.toggle('is-open', isOpen);
+  panel.setAttribute('aria-hidden', String(!isOpen));
+}
+
+function getSelectedAudioSourceType(): AudioSourceType {
+  const selected = document.querySelector<HTMLInputElement>('input[name="audioSourceType"]:checked');
+  return selected?.value === 'default' ? 'default' : 'weather';
+}
+
+function resolveAudioStatusText(): string {
+  if (audioConfig.sourceType === 'default') {
+    return '默认白噪音 · Pure Focus Noise';
+  }
+
+  if (audioConfig.customWeatherParam.trim()) {
+    return `智能天气音 · ${audioConfig.customWeatherParam.trim()}`;
+  }
+
+  if (startupWeather) {
+    const ambienceLabel = startupWeather.ambience === 'rain' ? '雨声画像' : '风声画像';
+    return `智能天气音 · ${startupWeather.city} · ${ambienceLabel}`;
+  }
+
+  return '智能天气音 · 自动定位';
+}
+
+function syncSettingsUI() {
+  const defaultRadio = document.querySelector<HTMLInputElement>('input[name="audioSourceType"][value="default"]');
+  const weatherRadio = document.querySelector<HTMLInputElement>('input[name="audioSourceType"][value="weather"]');
+  const customWeatherInput = document.getElementById('customWeatherInput') as HTMLInputElement | null;
+  const weatherPanelHint = document.getElementById('weatherPanelHint');
+  const audioModeStatus = document.getElementById('audioModeStatus');
+
+  if (defaultRadio) {
+    defaultRadio.checked = audioConfig.sourceType === 'default';
+  }
+
+  if (weatherRadio) {
+    weatherRadio.checked = audioConfig.sourceType === 'weather';
+  }
+
+  if (customWeatherInput) {
+    customWeatherInput.value = audioConfig.customWeatherParam;
+    customWeatherInput.disabled = audioConfig.sourceType !== 'weather';
+  }
+
+  if (weatherPanelHint) {
+    if (startupWeather) {
+      const resolvedLabel = startupWeather.ambience === 'rain' ? '雨声' : '风声';
+      weatherPanelHint.textContent = `当前定位：${startupWeather.city}, ${startupWeather.country} · ${resolvedLabel} · 可留空以继续自动匹配。`;
+    } else {
+      weatherPanelHint.textContent = '当前定位未加载，留空时将继续使用系统默认天气画像。';
+    }
+  }
+
+  if (audioModeStatus) {
+    audioModeStatus.textContent = resolveAudioStatusText();
+  }
+}
+
+function bindSettingsPanelEvents() {
+  const settingsToggleBtn = document.getElementById('settingsToggleBtn');
+  const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+  const settingsCancelBtn = document.getElementById('settingsCancelBtn');
+  const settingsSaveBtn = document.getElementById('settingsSaveBtn');
+  const settingsBackdrop = document.getElementById('settingsBackdrop');
+  const customWeatherInput = document.getElementById('customWeatherInput') as HTMLInputElement | null;
+
+  settingsToggleBtn?.addEventListener('click', () => {
+    syncSettingsUI();
+    setSettingsOpen(true);
+  });
+
+  settingsCloseBtn?.addEventListener('click', () => setSettingsOpen(false));
+  settingsCancelBtn?.addEventListener('click', () => {
+    syncSettingsUI();
+    setSettingsOpen(false);
+  });
+  settingsBackdrop?.addEventListener('click', () => setSettingsOpen(false));
+
+  document.querySelectorAll<HTMLInputElement>('input[name="audioSourceType"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      const isWeather = getSelectedAudioSourceType() === 'weather';
+      if (customWeatherInput) {
+        customWeatherInput.disabled = !isWeather;
+        if (isWeather) {
+          customWeatherInput.focus();
+        }
+      }
+    });
+  });
+
+  settingsSaveBtn?.addEventListener('click', () => {
+    audioConfig = {
+      sourceType: getSelectedAudioSourceType(),
+      customWeatherParam: customWeatherInput?.value.trim() ?? '',
+    };
+
+    audioManager.setAudioConfig(audioConfig);
+    syncSettingsUI();
+    setSettingsOpen(false);
+  });
 }
 
 function setupRenderLifecycle() {
@@ -325,20 +828,26 @@ function setupRenderLifecycle() {
 
 async function loadStartupWeather(isTauri: boolean) {
   if (!isTauri) {
+    startupWeather = null;
     audioManager.setWeatherAmbience('wind');
+    syncSettingsUI();
     return;
   }
 
   try {
     const coordinates = await getUserCoordinates();
     const weather = await invoke<StartupWeather>('fetch_startup_weather', coordinates ?? {});
+    startupWeather = weather;
     audioManager.setWeatherAmbience(weather.ambience);
     console.log(
       `🌦️ Startup weather loaded: ${weather.city}, ${weather.country} | ${weather.ambience} | code=${weather.weatherCode} | temp=${weather.temperatureC.toFixed(1)}C | locationSource=${weather.locationSource}`,
     );
+    syncSettingsUI();
   } catch (error) {
+    startupWeather = null;
     console.error('❌ Startup weather fetch failed, fallback to wind ambience:', error);
     audioManager.setWeatherAmbience('wind');
+    syncSettingsUI();
   }
 }
 

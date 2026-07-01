@@ -1,4 +1,12 @@
 export type WeatherAmbience = 'rain' | 'wind';
+export type AudioSourceType = 'default' | 'weather';
+
+export type AudioConfig = {
+  sourceType: AudioSourceType;
+  customWeatherParam: string;
+};
+
+type BackgroundPreset = 'default' | 'rain' | 'wind' | 'storm';
 
 export class AudioManager {
   private audioContext: AudioContext | null = null;
@@ -13,11 +21,27 @@ export class AudioManager {
   private rhythmLfoGain: GainNode | null = null;
   private isPlaying = false;
   private weatherAmbience: WeatherAmbience = 'wind';
+  private activePreset: BackgroundPreset = 'wind';
+  private audioConfig: AudioConfig = {
+    sourceType: 'weather',
+    customWeatherParam: '',
+  };
 
   setWeatherAmbience(ambience: WeatherAmbience) {
     this.weatherAmbience = ambience;
+    if (this.audioContext && this.audioConfig.sourceType === 'weather' && !this.audioConfig.customWeatherParam.trim()) {
+      this.applyBackgroundProfile();
+    }
+  }
+
+  setAudioConfig(config: AudioConfig) {
+    this.audioConfig = {
+      sourceType: config.sourceType,
+      customWeatherParam: config.customWeatherParam.trim(),
+    };
+
     if (this.audioContext) {
-      this.applyWeatherProfile();
+      this.applyBackgroundProfile();
     }
   }
 
@@ -73,7 +97,7 @@ export class AudioManager {
       this.rhythmLfo.connect(this.rhythmLfoGain);
       this.rhythmLfoGain.connect(this.rhythmOsc.frequency);
 
-      this.applyWeatherProfile();
+      this.applyBackgroundProfile();
 
       this.backgroundSource.start();
       this.rhythmOsc.start();
@@ -99,7 +123,7 @@ export class AudioManager {
     const rhythmVolume = 0.18 + energy * 0.55;
     this.rhythmGain.gain.setTargetAtTime(rhythmVolume, now, 0.05);
 
-    const ambienceBaseGain = this.weatherAmbience === 'rain' ? 0.18 : 0.14;
+    const ambienceBaseGain = this.getBaseAmbienceGain();
     this.backgroundGain.gain.setTargetAtTime(ambienceBaseGain + energy * 0.08, now, 0.1);
   }
 
@@ -119,27 +143,125 @@ export class AudioManager {
     return buffer;
   }
 
-  private applyWeatherProfile() {
-    if (!this.audioContext || !this.backgroundFilter || !this.backgroundGain || !this.rhythmOsc || !this.rhythmLfo) {
+  private getBaseAmbienceGain(): number {
+    switch (this.activePreset) {
+      case 'default':
+        return 0.12;
+      case 'rain':
+        return 0.18;
+      case 'storm':
+        return 0.22;
+      case 'wind':
+      default:
+        return 0.14;
+    }
+  }
+
+  private resolveBackgroundPreset(): BackgroundPreset {
+    if (this.audioConfig.sourceType === 'default') {
+      return 'default';
+    }
+
+    const customValue = this.audioConfig.customWeatherParam.trim().toLowerCase();
+
+    if (customValue) {
+      if (
+        customValue.includes('雷') ||
+        customValue.includes('暴') ||
+        customValue.includes('storm') ||
+        customValue.includes('thunder')
+      ) {
+        return 'storm';
+      }
+
+      if (
+        customValue.includes('雨') ||
+        customValue.includes('drizzle') ||
+        customValue.includes('rain') ||
+        customValue.includes('shower')
+      ) {
+        return 'rain';
+      }
+
+      if (
+        customValue.includes('风') ||
+        customValue.includes('wind') ||
+        customValue.includes('breeze') ||
+        customValue.includes('typhoon')
+      ) {
+        return 'wind';
+      }
+
+      if (
+        customValue.includes('tokyo') ||
+        customValue.includes('东京') ||
+        customValue.includes('london') ||
+        customValue.includes('seattle')
+      ) {
+        return 'rain';
+      }
+
+      if (
+        customValue.includes('beijing') ||
+        customValue.includes('北京') ||
+        customValue.includes('kyoto') ||
+        customValue.includes('helsinki')
+      ) {
+        return 'wind';
+      }
+    }
+
+    return this.weatherAmbience;
+  }
+
+  private applyBackgroundProfile() {
+    if (!this.audioContext || !this.backgroundFilter || !this.backgroundGain || !this.rhythmOsc || !this.rhythmLfo || !this.backgroundSource) {
       return;
     }
 
     const now = this.audioContext.currentTime;
 
-    if (this.weatherAmbience === 'rain') {
+    this.activePreset = this.resolveBackgroundPreset();
+
+    if (this.activePreset === 'default') {
+      this.backgroundFilter.type = 'highpass';
+      this.backgroundFilter.frequency.setTargetAtTime(1200, now, 0.2);
+      this.backgroundFilter.Q.setTargetAtTime(0.15, now, 0.2);
+      this.backgroundGain.gain.setTargetAtTime(0.12, now, 0.2);
+      this.backgroundSource.playbackRate.setTargetAtTime(0.9, now, 0.2);
+      this.rhythmOsc.frequency.setTargetAtTime(170, now, 0.15);
+      this.rhythmLfo.frequency.setTargetAtTime(0.9, now, 0.15);
+      return;
+    }
+
+    if (this.activePreset === 'storm') {
       this.backgroundFilter.type = 'bandpass';
-      this.backgroundFilter.frequency.setTargetAtTime(2600, now, 0.15);
-      this.backgroundFilter.Q.setTargetAtTime(0.8, now, 0.15);
-      this.backgroundGain.gain.setTargetAtTime(0.18, now, 0.15);
+      this.backgroundFilter.frequency.setTargetAtTime(1800, now, 0.2);
+      this.backgroundFilter.Q.setTargetAtTime(1.2, now, 0.2);
+      this.backgroundGain.gain.setTargetAtTime(0.22, now, 0.2);
+      this.backgroundSource.playbackRate.setTargetAtTime(1.08, now, 0.2);
+      this.rhythmOsc.frequency.setTargetAtTime(245, now, 0.15);
+      this.rhythmLfo.frequency.setTargetAtTime(1.6, now, 0.15);
+      return;
+    }
+
+    if (this.activePreset === 'rain') {
+      this.backgroundFilter.type = 'bandpass';
+      this.backgroundFilter.frequency.setTargetAtTime(2600, now, 0.2);
+      this.backgroundFilter.Q.setTargetAtTime(0.8, now, 0.2);
+      this.backgroundGain.gain.setTargetAtTime(0.18, now, 0.2);
+      this.backgroundSource.playbackRate.setTargetAtTime(1, now, 0.2);
       this.rhythmOsc.frequency.setTargetAtTime(220, now, 0.15);
       this.rhythmLfo.frequency.setTargetAtTime(1.25, now, 0.15);
-    } else {
-      this.backgroundFilter.type = 'lowpass';
-      this.backgroundFilter.frequency.setTargetAtTime(420, now, 0.15);
-      this.backgroundFilter.Q.setTargetAtTime(0.35, now, 0.15);
-      this.backgroundGain.gain.setTargetAtTime(0.14, now, 0.15);
-      this.rhythmOsc.frequency.setTargetAtTime(160, now, 0.15);
-      this.rhythmLfo.frequency.setTargetAtTime(0.75, now, 0.15);
+      return;
     }
+
+    this.backgroundFilter.type = 'lowpass';
+    this.backgroundFilter.frequency.setTargetAtTime(420, now, 0.2);
+    this.backgroundFilter.Q.setTargetAtTime(0.35, now, 0.2);
+    this.backgroundGain.gain.setTargetAtTime(0.14, now, 0.2);
+    this.backgroundSource.playbackRate.setTargetAtTime(0.78, now, 0.2);
+    this.rhythmOsc.frequency.setTargetAtTime(160, now, 0.15);
+    this.rhythmLfo.frequency.setTargetAtTime(0.75, now, 0.15);
   }
 }
