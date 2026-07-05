@@ -77,15 +77,15 @@ export class AudioManager {
       this.backgroundSource.connect(this.backgroundFilter);
 
       this.rhythmGain = this.audioContext.createGain();
-      this.rhythmGain.gain.value = 0.25;
+      this.rhythmGain.gain.value = 0;
       this.rhythmGain.connect(this.lowpassFilter);
 
       this.rhythmOsc = this.audioContext.createOscillator();
       this.rhythmOsc.type = 'square';
-      this.rhythmOsc.frequency.value = 180;
+      this.rhythmOsc.frequency.value = 320;
 
       const rhythmEnvelope = this.audioContext.createGain();
-      rhythmEnvelope.gain.value = 0.08;
+      rhythmEnvelope.gain.value = 0.04;
       this.rhythmOsc.connect(rhythmEnvelope);
       rhythmEnvelope.connect(this.rhythmGain);
 
@@ -113,14 +113,14 @@ export class AudioManager {
   updateEnergy(energy: number) {
     if (!this.lowpassFilter || !this.audioContext || !this.rhythmGain || !this.backgroundGain) return;
 
-    const minFreq = 100;
+    const minFreq = 1200;
     const maxFreq = 20000;
     const targetFreq = minFreq + (maxFreq - minFreq) * energy;
     const now = this.audioContext.currentTime;
 
     this.lowpassFilter.frequency.setTargetAtTime(targetFreq, now, 0.05);
 
-    const rhythmVolume = 0.18 + energy * 0.55;
+    const rhythmVolume = energy < 0.08 ? 0 : Math.max(0, (energy - 0.08) * 0.6);
     this.rhythmGain.gain.setTargetAtTime(rhythmVolume, now, 0.05);
 
     const ambienceBaseGain = this.getBaseAmbienceGain();
@@ -229,7 +229,7 @@ export class AudioManager {
       this.backgroundFilter.Q.setTargetAtTime(0.15, now, 0.2);
       this.backgroundGain.gain.setTargetAtTime(0.12, now, 0.2);
       this.backgroundSource.playbackRate.setTargetAtTime(0.9, now, 0.2);
-      this.rhythmOsc.frequency.setTargetAtTime(170, now, 0.15);
+      this.rhythmOsc.frequency.setTargetAtTime(320, now, 0.15);
       this.rhythmLfo.frequency.setTargetAtTime(0.9, now, 0.15);
       return;
     }
@@ -240,7 +240,7 @@ export class AudioManager {
       this.backgroundFilter.Q.setTargetAtTime(1.2, now, 0.2);
       this.backgroundGain.gain.setTargetAtTime(0.22, now, 0.2);
       this.backgroundSource.playbackRate.setTargetAtTime(1.08, now, 0.2);
-      this.rhythmOsc.frequency.setTargetAtTime(245, now, 0.15);
+      this.rhythmOsc.frequency.setTargetAtTime(420, now, 0.15);
       this.rhythmLfo.frequency.setTargetAtTime(1.6, now, 0.15);
       return;
     }
@@ -251,7 +251,7 @@ export class AudioManager {
       this.backgroundFilter.Q.setTargetAtTime(0.8, now, 0.2);
       this.backgroundGain.gain.setTargetAtTime(0.18, now, 0.2);
       this.backgroundSource.playbackRate.setTargetAtTime(1, now, 0.2);
-      this.rhythmOsc.frequency.setTargetAtTime(220, now, 0.15);
+      this.rhythmOsc.frequency.setTargetAtTime(360, now, 0.15);
       this.rhythmLfo.frequency.setTargetAtTime(1.25, now, 0.15);
       return;
     }
@@ -261,7 +261,7 @@ export class AudioManager {
     this.backgroundFilter.Q.setTargetAtTime(0.35, now, 0.2);
     this.backgroundGain.gain.setTargetAtTime(0.14, now, 0.2);
     this.backgroundSource.playbackRate.setTargetAtTime(0.78, now, 0.2);
-    this.rhythmOsc.frequency.setTargetAtTime(160, now, 0.15);
+    this.rhythmOsc.frequency.setTargetAtTime(300, now, 0.15);
     this.rhythmLfo.frequency.setTargetAtTime(0.75, now, 0.15);
   }
 }
