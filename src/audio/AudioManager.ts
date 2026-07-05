@@ -15,7 +15,6 @@ export class AudioManager {
   private backgroundGain: GainNode | null = null;
   private backgroundFilter: BiquadFilterNode | null = null;
   private backgroundSource: AudioBufferSourceNode | null = null;
-  private isPlaying = false;
   private weatherAmbience: WeatherAmbience = 'wind';
   private activePreset: BackgroundPreset = 'wind';
   private audioConfig: AudioConfig = {
@@ -42,7 +41,10 @@ export class AudioManager {
   }
 
   async start() {
-    if (this.isPlaying) return;
+    if (this.audioContext) {
+      await this.resume();
+      return;
+    }
 
     try {
       console.log(`🎵 Initializing AudioManager with ${this.weatherAmbience} ambience...`);
@@ -76,11 +78,37 @@ export class AudioManager {
 
       this.backgroundSource.start();
 
-      this.isPlaying = true;
       console.log('✅ Audio started successfully!');
     } catch (error) {
       console.error('❌ Audio error:', error);
     }
+  }
+
+  async resume() {
+    if (!this.audioContext) {
+      await this.start();
+      return;
+    }
+
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+
+  }
+
+  async pause() {
+    if (!this.audioContext) {
+      return;
+    }
+
+    if (this.audioContext.state === 'running') {
+      await this.audioContext.suspend();
+    }
+
+  }
+
+  isActive() {
+    return this.audioContext?.state === 'running';
   }
 
   updateEnergy(energy: number) {
