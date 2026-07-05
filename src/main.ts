@@ -33,6 +33,8 @@ let playlistEmbedState: PlaylistEmbedState = {
   error: '',
 };
 const activeMixerTracks = new Map<string, HTMLAudioElement>();
+const favoriteTrackIds = new Set<string>();
+const trackVolumes = new Map<string, number>();
 
 type StartupWeather = {
   latitude: number;
@@ -70,6 +72,20 @@ type PlaylistEmbedState = {
   error: string;
 };
 
+type AudioTrack = {
+  id: string;
+  name: string;
+  icon: string;
+  src: string;
+};
+
+type AudioCategory = {
+  id: string;
+  name: string;
+  icon: string;
+  tracks: AudioTrack[];
+};
+
 type MixerTrack = {
   id: string;
   title: string;
@@ -81,132 +97,96 @@ type MixerTrack = {
   noise: number;
 };
 
-const featuredTracks: MixerTrack[] = [
+const audioCategories: AudioCategory[] = [
   {
-    id: 'soft-rain',
-    title: '温柔雨声',
-    description: '一场温柔的雨，带来内心的宁静',
-    icon: '☁',
-    tags: ['雨声'],
-    frequency: 420,
-    modulation: 0.18,
-    noise: 0.55,
+    id: 'nature',
+    name: '自然',
+    icon: '🌲',
+    tracks: [
+      { id: 'river', name: '河流', icon: '🌊', src: '/nature/river.mp3' },
+      { id: 'waves', name: '海浪', icon: '🥣', src: '/nature/waves.mp3' },
+      { id: 'bonfire', name: '篬火', icon: '🔥', src: '/nature/bonfire.mp3' },
+      { id: 'wind', name: '风声', icon: '💨', src: '/nature/wind.mp3' },
+      { id: 'howling_wind', name: '呼啸风声', icon: '🍃', src: '/nature/howling-wind.mp3' },
+      { id: 'forest_wind', name: '树林风声', icon: '🌿', src: '/nature/forest_wind.mp3' },
+      { id: 'waterfall', name: '瀑布', icon: '🏞', src: '/nature/waterfall.mp3' },
+      { id: 'snow_walk', name: '雪地行走', icon: '❄', src: '/nature/snow_walk.mp3' },
+      { id: 'leaf_walk', name: '落叶行走', icon: '🍂', src: '/nature/leaf_walk.mp3' },
+      { id: 'gravel_walk', name: '碎石行走', icon: '🪨', src: '/nature/gravel_walk.mp3' },
+      { id: 'water_drop', name: '水滴', icon: '💧', src: '/nature/water_drop.mp3' },
+      { id: 'jungle', name: '丛林', icon: '🌳', src: '/nature/jungle.mp3' },
+    ],
   },
   {
-    id: 'cafe',
-    title: '温馨咖啡厅',
-    description: '真实的咖啡厅环境音',
-    icon: '☕',
-    tags: ['咖啡厅'],
-    frequency: 620,
-    modulation: 0.08,
-    noise: 0.42,
+    id: 'rain',
+    name: '雨声',
+    icon: '🌧',
+    tracks: [
+      { id: 'light_rain', name: '小雨', icon: '🌧', src: '' },
+      { id: 'heavy_rain', name: '大雨', icon: '⛈', src: '' },
+      { id: 'window_rain', name: '窗户雨声', icon: '🪟', src: '' },
+      { id: 'umbrella_rain', name: '雨伞雨声', icon: '⛱', src: '' },
+    ],
   },
   {
-    id: 'rain-cafe',
-    title: '雨天咖啡厅',
-    description: '窗边雨滴和远处的杯盘声',
-    icon: '◌',
-    tags: ['雨滴', '咖啡厅'],
-    frequency: 520,
-    modulation: 0.24,
-    noise: 0.62,
-  },
-  {
-    id: 'calm-rain',
-    title: '悠闲雨声',
-    description: '放松的雨声，适合冥想和专注',
-    icon: '∿',
-    tags: ['悠闲雨声'],
-    frequency: 360,
-    modulation: 0.14,
-    noise: 0.52,
-  },
-  {
-    id: 'window-rain',
-    title: '窗边雨滴',
-    description: '雨滴敲打窗户的声音',
-    icon: '⌂',
-    tags: ['雨滴'],
-    frequency: 680,
-    modulation: 0.3,
-    noise: 0.48,
-  },
-  {
-    id: 'forest-storm',
-    title: '森林雷雨',
-    description: '森林中的雷雨天气',
-    icon: '⚡',
-    tags: ['森林', '雷声'],
-    frequency: 240,
-    modulation: 0.38,
-    noise: 0.72,
-  },
-  {
-    id: 'ocean',
-    title: '海浪',
-    description: '海浪拍打海岸的自然节奏',
-    icon: '≋',
-    tags: ['海浪'],
-    frequency: 300,
-    modulation: 0.46,
-    noise: 0.5,
-  },
-  {
-    id: 'campfire',
-    title: '篝火夜晚',
-    description: '篝火旁的宁静夜晚',
-    icon: '♨',
-    tags: ['篝火', '夜晚'],
-    frequency: 760,
-    modulation: 0.33,
-    noise: 0.35,
+    id: 'animals',
+    name: '动物',
+    icon: '🐦',
+    tracks: [
+      { id: 'birds', name: '鸟鸣', icon: '🐦', src: '' },
+      { id: 'cats', name: '猫咪呼噜', icon: '🐱', src: '' },
+      { id: 'frogs', name: '青蛙', icon: '🐸', src: '' },
+    ],
   },
 ];
 
-const mixerTracks: MixerTrack[] = [
-  ...featuredTracks,
-  {
-    id: 'birds',
-    title: '晨间鸟鸣',
-    description: '清晨的鸟儿歌声和森林声',
-    icon: '♬',
-    tags: ['鸟鸣', '森林'],
-    frequency: 940,
-    modulation: 0.28,
-    noise: 0.26,
-  },
-  {
-    id: 'wind',
-    title: '风声',
-    description: '轻柔的风声，带来平静',
-    icon: '≋',
-    tags: ['风声'],
-    frequency: 280,
-    modulation: 0.2,
-    noise: 0.45,
-  },
-  {
-    id: 'deep-rain',
-    title: '多重雨声',
-    description: '雨滴落在不同表面的丰富音效',
-    icon: '☁',
-    tags: ['多重雨声'],
-    frequency: 500,
-    modulation: 0.36,
-    noise: 0.68,
-  },
-  {
-    id: 'night-room',
-    title: '夜间房间',
-    description: '安静房间里的细微空气声',
-    icon: '◐',
-    tags: ['夜晚'],
-    frequency: 180,
-    modulation: 0.06,
-    noise: 0.22,
-  },
-];
+
+function resolveMixerTrack(track: AudioTrack): MixerTrack {
+  return {
+    id: track.id,
+    title: track.name,
+    description: '',
+    icon: track.icon,
+    tags: [],
+    frequency: 200 + track.id.length * 37,
+    modulation: 0.5 + (track.id.length % 5) * 0.1,
+    noise: 0.3 + (track.id.length % 3) * 0.1,
+  };
+}
+
+function findAudioTrack(trackId: string): AudioTrack | null {
+  for (const cat of audioCategories) {
+    const found = cat.tracks.find((t) => t.id === trackId);
+    if (found) return found;
+  }
+  return null;
+}
+
+
+function toggleFavoriteTrack(trackId: string) {
+  if (favoriteTrackIds.has(trackId)) {
+    favoriteTrackIds.delete(trackId);
+  } else {
+    favoriteTrackIds.add(trackId);
+  }
+  const isFavorite = favoriteTrackIds.has(trackId);
+  document.querySelectorAll<HTMLElement>(`[data-track-favorite="${trackId}"]`).forEach((btn) => {
+    btn.classList.toggle('is-favorite', isFavorite);
+    btn.setAttribute('aria-pressed', String(isFavorite));
+  });
+}
+
+function getTrackVolume(trackId: string): number {
+  return trackVolumes.get(trackId) ?? 50;
+}
+
+function updateTrackVolume(trackId: string, value: number) {
+  trackVolumes.set(trackId, value);
+  const audio = activeMixerTracks.get(trackId);
+  if (audio) {
+    audio.volume = value / 100;
+  }
+}
 
 function createUI() {
   const app = document.getElementById('app') as HTMLDivElement;
@@ -1409,8 +1389,8 @@ function createUI() {
     </aside>
   `;
 
-  renderTrackGrid('featuredTracksGrid', featuredTracks);
-  renderTrackGrid('mixerTracksGrid', mixerTracks);
+  renderCategoryTrackGrid('featuredTracksGrid', [audioCategories[0]]);
+  renderCategoryTrackGrid('mixerTracksGrid', audioCategories);
   bindInteractionEvents();
   bindSettingsPanelEvents();
   syncSettingsUI();
@@ -1418,29 +1398,39 @@ function createUI() {
   requestAnimationFrame(animateEnergy);
 }
 
-function renderTrackGrid(containerId: string, tracks: MixerTrack[]) {
+function renderCategoryTrackGrid(containerId: string, categories: AudioCategory[]) {
   const container = document.getElementById(containerId);
-  if (!container) {
-    return;
-  }
+  if (!container) return;
 
-  container.innerHTML = tracks
-    .map(
-      (track) => `
-        <article class="zen-card zen-sound-card" data-track-id="${track.id}">
-          <div>
-            <div class="zen-sound-top">
-              <span class="zen-track-icon">${track.icon}</span>
-              <button class="zen-play-button" type="button" data-track-toggle="${track.id}" aria-label="播放 ${track.title}">▷</button>
-            </div>
-            <h3>${track.title}</h3>
-            <p>${track.description}</p>
-          </div>
-          <div class="zen-tags">${track.tags.map((tag) => `<span>${tag}</span>`).join('')}</div>
-        </article>
-      `,
-    )
+  container.innerHTML = categories
+    .map((category) => {
+      const catLabel = category.icon + ' ' + category.name;
+      return '<div class="zen-category-strip"><div class="zen-category-label">' + catLabel + '</div><div class="zen-track-grid">'
+        + category.tracks.map(renderMiniMixerCard).join('')
+        + '</div></div>';
+    })
     .join('');
+}
+
+function renderMiniMixerCard(track: AudioTrack): string {
+  const volume = getTrackVolume(track.id);
+  const isFavorite = favoriteTrackIds.has(track.id);
+  const hasSource = track.src.length > 0;
+
+  return '<article class="zen-card zen-sound-card" data-track-id="' + track.id + '">'
+    + '<button class="zen-favorite-button' + (isFavorite ? ' is-favorite' : '') + '"'
+    + ' type="button" data-track-favorite="' + track.id + '"'
+    + ' aria-label="收藏 ' + track.name + '"'
+    + ' aria-pressed="' + isFavorite + '"></button>'
+    + '<button class="zen-play-button" type="button"'
+    + ' data-track-toggle="' + track.id + '"'
+    + ' aria-label="' + (hasSource ? '播放 ' + track.name : track.name + ' 音频待添加') + '"'
+    + (hasSource ? '' : ' disabled') + '>' + track.icon + '</button>'
+    + '<h3>' + track.name + '</h3>'
+    + '<label class="zen-volume-wrap" aria-label="' + track.name + ' 音量">'
+    + '<input class="zen-volume-slider" type="range" min="0" max="100"'
+    + ' value="' + volume + '" data-track-volume="' + track.id + '">'
+    + '</label></article>';
 }
 
 function bindInteractionEvents() {
@@ -1464,10 +1454,22 @@ function bindInteractionEvents() {
 
   document.querySelectorAll<HTMLButtonElement>('[data-track-toggle]').forEach((button) => {
     button.addEventListener('click', () => {
-      const track = [...mixerTracks].find((item) => item.id === button.dataset.trackToggle);
+      const track = findAudioTrack(button.dataset.trackToggle ?? '');
       if (track) {
         toggleMixerTrack(track);
       }
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-track-favorite]').forEach((button) => {
+    button.addEventListener('click', () => {
+      toggleFavoriteTrack(button.dataset.trackFavorite ?? '');
+    });
+  });
+
+  document.querySelectorAll<HTMLInputElement>('[data-track-volume]').forEach((slider) => {
+    slider.addEventListener('input', () => {
+      updateTrackVolume(slider.dataset.trackVolume ?? '', Number(slider.value));
     });
   });
 }
@@ -1996,7 +1998,7 @@ function playMokugyoSound() {
   oscillator.stop(now + 0.2);
 }
 
-function toggleMixerTrack(track: MixerTrack) {
+function toggleMixerTrack(track: AudioTrack) {
   const existing = activeMixerTracks.get(track.id);
   if (existing) {
     existing.pause();
@@ -2006,9 +2008,11 @@ function toggleMixerTrack(track: MixerTrack) {
     return;
   }
 
-  const audio = new Audio(createAmbientLoopDataUri(track));
+  const src = track.src || createAmbientLoopDataUri(resolveMixerTrack(track));
+  const audio = new Audio(src);
   audio.loop = true;
-  audio.volume = 0.28;
+  const storedVolume = getTrackVolume(track.id);
+  audio.volume = storedVolume / 100;
   audio.play().catch((error: unknown) => {
     console.error('Mixer track playback failed:', error);
     activeMixerTracks.delete(track.id);
