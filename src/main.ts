@@ -156,7 +156,7 @@ const trackRuntimeState = new Map<string, TrackRuntimeState>(
   mixerTracks.map((track) => [
     track.id,
     {
-      volume: track.categoryId === 'nature' ? 0.48 : 0.42,
+      volume: 0.5,
       isActive: false,
       isFavorite: false,
       element: null,
@@ -704,12 +704,12 @@ function createUI() {
 
       .fs-track-card {
         position: relative;
-        min-height: 212px;
+        min-height: 282px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
         gap: 14px;
-        padding: 18px 18px 14px;
+        padding: 18px 18px 18px;
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.04);
         background: rgba(20, 20, 25, 0.75);
@@ -794,8 +794,10 @@ function createUI() {
         position: relative;
         z-index: 1;
         display: flex;
+        flex: 1;
         flex-direction: column;
         align-items: center;
+        justify-content: center;
         gap: 14px;
         text-align: center;
       }
@@ -842,52 +844,105 @@ function createUI() {
         display: flex;
         flex-direction: column;
         gap: 10px;
+        margin-top: auto;
+        padding-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
       }
 
       .fs-track-slider-meta {
         display: flex;
         justify-content: space-between;
         font-size: 0.72rem;
-        color: rgba(255, 255, 255, 0.42);
+        color: rgba(255, 255, 255, 0.5);
       }
 
       .fs-track-slider {
+        --slider-progress: 50%;
         width: 100%;
         margin: 0;
+        display: block;
+        height: 22px;
         appearance: none;
         background: transparent;
+        cursor: pointer;
+        touch-action: pan-x;
+      }
+
+      .fs-track-slider:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      .fs-track-slider:focus {
+        outline: none;
       }
 
       .fs-track-slider::-webkit-slider-runnable-track {
-        height: 3px;
+        height: 4px;
         border-radius: 999px;
-        background: linear-gradient(90deg, rgba(0, 240, 255, 0.7), rgba(255, 255, 255, 0.2));
+        background:
+          linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.68) 0%,
+            rgba(255, 255, 255, 0.64) var(--slider-progress),
+            rgba(255, 255, 255, 0.1) var(--slider-progress),
+            rgba(255, 255, 255, 0.1) 100%
+          );
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 10px rgba(0, 240, 255, 0.03);
       }
 
       .fs-track-slider::-webkit-slider-thumb {
         appearance: none;
-        width: 12px;
-        height: 12px;
-        margin-top: -4px;
+        width: 16px;
+        height: 16px;
+        margin-top: -6px;
         border: none;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.96);
-        box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06), 0 0 12px rgba(0, 240, 255, 0.2);
+        background:
+          radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.88) 48%, rgba(215, 244, 255, 0.74) 70%, rgba(180, 233, 255, 0.76) 100%);
+        box-shadow:
+          0 0 0 4px rgba(255, 255, 255, 0.04),
+          0 0 10px rgba(255, 255, 255, 0.16),
+          0 0 16px rgba(0, 240, 255, 0.1);
+        transition: transform 0.16s ease, box-shadow 0.2s ease;
+      }
+
+      .fs-track-slider:hover::-webkit-slider-thumb {
+        transform: scale(1.04);
+      }
+
+      .fs-track-slider:active::-webkit-slider-thumb {
+        transform: scale(1.08);
+        box-shadow:
+          0 0 0 5px rgba(255, 255, 255, 0.06),
+          0 0 14px rgba(255, 255, 255, 0.22),
+          0 0 20px rgba(0, 240, 255, 0.14);
       }
 
       .fs-track-slider::-moz-range-track {
-        height: 3px;
+        height: 4px;
         border-radius: 999px;
-        background: linear-gradient(90deg, rgba(0, 240, 255, 0.7), rgba(255, 255, 255, 0.2));
+        background: rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 10px rgba(0, 240, 255, 0.03);
+      }
+
+      .fs-track-slider::-moz-range-progress {
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.66);
       }
 
       .fs-track-slider::-moz-range-thumb {
-        width: 12px;
-        height: 12px;
+        width: 16px;
+        height: 16px;
         border: none;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.96);
-        box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06), 0 0 12px rgba(0, 240, 255, 0.2);
+        background:
+          radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.88) 48%, rgba(215, 244, 255, 0.74) 70%, rgba(180, 233, 255, 0.76) 100%);
+        box-shadow:
+          0 0 0 4px rgba(255, 255, 255, 0.04),
+          0 0 10px rgba(255, 255, 255, 0.16),
+          0 0 16px rgba(0, 240, 255, 0.1);
       }
 
       .fs-settings-backdrop {
@@ -1773,6 +1828,26 @@ function getTrackStatusText(track: AudioMixerTrackWithCategory, state: TrackRunt
   return 'Tap To Layer';
 }
 
+function getSliderProgressStyle(volumePercent: number): string {
+  const clamped = Math.max(0, Math.min(100, volumePercent));
+  return `--slider-progress: ${clamped}%;`;
+}
+
+function updateTrackVolumeUI(trackId: string, volumePercent: number) {
+  const slider = document.querySelector<HTMLInputElement>(`[data-track-volume="${trackId}"]`);
+  const label = document.querySelector<HTMLElement>(`[data-track-volume-label="${trackId}"]`);
+  const clamped = Math.max(0, Math.min(100, Math.round(volumePercent)));
+
+  if (slider) {
+    slider.value = String(clamped);
+    slider.style.setProperty('--slider-progress', `${clamped}%`);
+  }
+
+  if (label) {
+    label.textContent = `${clamped}%`;
+  }
+}
+
 function renderMixerGrid() {
   const grid = document.getElementById('mixerGrid');
   if (!grid) {
@@ -1788,6 +1863,7 @@ function renderMixerGrid() {
       const favoriteClass = runtime.isFavorite ? 'is-favorite' : '';
       const volume = Math.round(runtime.volume * 100);
       const badgeText = track.src ? (runtime.isActive ? 'Active' : 'Ready') : 'Reserved';
+      const canAdjustVolume = Boolean(track.src) && runtime.isActive;
 
       return `
         <article
@@ -1815,7 +1891,7 @@ function renderMixerGrid() {
           <div class="fs-track-slider-wrap">
             <div class="fs-track-slider-meta">
               <span>Volume</span>
-              <span>${volume}%</span>
+              <span data-track-volume-label="${track.id}">${volume}%</span>
             </div>
             <input
               class="fs-track-slider"
@@ -1823,8 +1899,9 @@ function renderMixerGrid() {
               min="0"
               max="100"
               value="${volume}"
-              ${track.src ? '' : 'disabled'}
+              style="${getSliderProgressStyle(volume)}"
               data-track-volume="${track.id}"
+              ${canAdjustVolume ? '' : 'disabled'}
             />
           </div>
         </article>
@@ -1955,13 +2032,19 @@ async function toggleTrack(trackId: string) {
 
 function updateTrackVolume(trackId: string, volumePercent: number) {
   const runtime = getTrackRuntimeState(trackId);
+  const track = getTrackById(trackId);
+  if (!track.src || !runtime.isActive) {
+    updateTrackVolumeUI(trackId, runtime.volume * 100);
+    return;
+  }
+
   runtime.volume = Math.max(0, Math.min(1, volumePercent / 100));
 
   if (runtime.element) {
     runtime.element.volume = runtime.volume;
   }
 
-  renderMixerGrid();
+  updateTrackVolumeUI(trackId, volumePercent);
 }
 
 function toggleFavorite(trackId: string) {
