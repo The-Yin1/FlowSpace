@@ -13,8 +13,11 @@
     "windows": [
       {
         "title": "FlowSpace",
-        "width": 800,
-        "height": 600,
+        "width": 1100,
+        "height": 680,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true,
         "decorations": true,
         "transparent": false,
         "resizable": true,

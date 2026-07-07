@@ -22,6 +22,16 @@ type StartupWeather = {
   locationSource: string;
 };
 
+type PermissionStatus = {
+  platform: string;
+  accessibilityGranted: boolean;
+  inputMonitoringGranted: boolean;
+  inputMonitoringStatus: string;
+  shouldShowGuidance: boolean;
+  accessibilityPrompted: boolean;
+  message: string;
+};
+
 type PlaylistPlatform = 'qq' | 'netease' | 'apple' | 'kugou';
 type MixerCategoryId = 'nature' | 'rain' | 'animals';
 
@@ -75,6 +85,7 @@ type MasterAudioState = 'idle' | 'running' | 'paused';
 const audioManager = new AudioManager();
 let visualManager: VisualManager | null = null;
 let startupWeather: StartupWeather | null = null;
+let permissionStatus: PermissionStatus | null = null;
 let currentEnergy = 0;
 let audioConfig: AudioConfig = {
   sourceType: 'weather',
@@ -404,9 +415,106 @@ function createUI() {
         box-shadow: 0 0 22px rgba(0, 240, 255, 0.14);
       }
 
+      .fs-permission-banner {
+        position: fixed;
+        top: 86px;
+        left: 24px;
+        right: 24px;
+        z-index: 14;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 14px 18px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018)),
+          rgba(15, 18, 24, 0.72);
+        backdrop-filter: blur(22px) saturate(130%);
+        -webkit-backdrop-filter: blur(22px) saturate(130%);
+        box-shadow:
+          0 18px 42px rgba(0, 0, 0, 0.28),
+          0 0 26px rgba(0, 240, 255, 0.05);
+        pointer-events: auto;
+      }
+
+      .fs-permission-banner[hidden] {
+        display: none;
+      }
+
+      .fs-permission-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .fs-permission-eyebrow {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.36);
+      }
+
+      .fs-permission-title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: rgba(255, 255, 255, 0.94);
+      }
+
+      .fs-permission-message,
+      .fs-permission-note {
+        margin: 0;
+        font-size: 0.84rem;
+        line-height: 1.6;
+        color: rgba(255, 255, 255, 0.58);
+      }
+
+      .fs-permission-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .fs-permission-button {
+        height: 38px;
+        padding: 0 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.86);
+        font-size: 0.82rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition: all 0.24s ease;
+      }
+
+      .fs-permission-button:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.13);
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      .fs-permission-button.is-primary {
+        background: rgba(255, 255, 255, 0.92);
+        color: #0a0b10;
+        box-shadow: 0 10px 24px rgba(255, 255, 255, 0.12);
+      }
+
+      .fs-permission-button.is-primary:hover {
+        box-shadow: 0 14px 28px rgba(255, 255, 255, 0.16);
+      }
+
       .fs-workspace {
         position: fixed;
-        inset: 92px 24px 28px;
+        inset: 154px 24px 28px;
         display: flex;
         justify-content: center;
         pointer-events: none;
@@ -1223,14 +1331,37 @@ function createUI() {
           justify-content: flex-start;
         }
 
+        .fs-permission-banner {
+          left: 16px;
+          right: 16px;
+          top: 146px;
+        }
+
         .fs-workspace {
-          inset: 164px 16px 16px;
+          inset: 254px 16px 16px;
         }
       }
 
       @media (max-width: 640px) {
+        .fs-permission-banner {
+          left: 12px;
+          right: 12px;
+          top: 154px;
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .fs-permission-actions {
+          width: 100%;
+          justify-content: stretch;
+        }
+
+        .fs-permission-button {
+          flex: 1 1 100%;
+        }
+
         .fs-workspace {
-          inset: 176px 12px 12px;
+          inset: 364px 12px 12px;
         }
 
         .fs-studio-panel {
@@ -1299,6 +1430,20 @@ function createUI() {
           <button id="settingsToggleBtn" class="fs-settings-button" type="button" aria-label="打开设置">⚙</button>
         </div>
       </header>
+
+      <section id="permissionBanner" class="fs-permission-banner" hidden aria-live="polite">
+        <div class="fs-permission-copy">
+          <div class="fs-permission-eyebrow">Privacy Guidance</div>
+          <h2 id="permissionBannerTitle" class="fs-permission-title">开启键盘监听所需权限</h2>
+          <p id="permissionBannerMessage" class="fs-permission-message"></p>
+          <p class="fs-permission-note">为了能够精准感知敲击心流，请确保已同时授予“辅助功能”与“输入监控”权限。完成授权后建议重新启动应用。</p>
+        </div>
+        <div class="fs-permission-actions">
+          <button id="requestAccessibilityBtn" class="fs-permission-button is-primary" type="button">授权辅助功能</button>
+          <button id="openInputMonitoringBtn" class="fs-permission-button" type="button">打开输入监控</button>
+          <button id="refreshPermissionBtn" class="fs-permission-button" type="button">刷新状态</button>
+        </div>
+      </section>
 
       <main class="fs-workspace">
         <section class="fs-studio-panel">
@@ -1416,11 +1561,13 @@ function createUI() {
   }
 
   bindTopBarEvents();
+  bindPermissionEvents();
   bindMixerEvents();
   bindSettingsPanelEvents();
   renderCategoryNav();
   renderMixerGrid();
   syncSettingsUI();
+  syncPermissionUI();
   syncHud();
 }
 
@@ -1744,6 +1891,40 @@ function syncHud() {
   if (favoriteTrackCount) {
     favoriteTrackCount.textContent = String(Array.from(trackRuntimeState.values()).filter((item) => item.isFavorite).length);
   }
+
+  syncPermissionUI();
+}
+
+function syncPermissionUI() {
+  const banner = document.getElementById('permissionBanner');
+  const title = document.getElementById('permissionBannerTitle');
+  const message = document.getElementById('permissionBannerMessage');
+  const accessibilityButton = document.getElementById('requestAccessibilityBtn') as HTMLButtonElement | null;
+  const inputButton = document.getElementById('openInputMonitoringBtn') as HTMLButtonElement | null;
+  const refreshButton = document.getElementById('refreshPermissionBtn') as HTMLButtonElement | null;
+
+  if (!banner || !title || !message || !accessibilityButton || !inputButton || !refreshButton) {
+    return;
+  }
+
+  if (!permissionStatus || permissionStatus.platform !== 'macos' || !permissionStatus.shouldShowGuidance) {
+    banner.hidden = true;
+    return;
+  }
+
+  const shouldShowBanner = !permissionStatus.accessibilityGranted || !permissionStatus.inputMonitoringGranted;
+  banner.hidden = !shouldShowBanner;
+  if (!shouldShowBanner) {
+    return;
+  }
+
+  title.textContent = '需要开启键盘监听所需权限';
+  message.textContent = permissionStatus.message;
+  accessibilityButton.textContent = permissionStatus.accessibilityGranted ? '打开辅助功能' : '授权辅助功能';
+  accessibilityButton.classList.toggle('is-primary', !permissionStatus.accessibilityGranted);
+  inputButton.textContent = permissionStatus.inputMonitoringGranted ? '输入监控已开启' : '打开输入监控';
+  inputButton.toggleAttribute('disabled', permissionStatus.inputMonitoringGranted);
+  refreshButton.textContent = '刷新状态';
 }
 
 function syncSettingsUI() {
@@ -2059,6 +2240,31 @@ function bindTopBarEvents() {
   });
 }
 
+function bindPermissionEvents() {
+  document.getElementById('requestAccessibilityBtn')?.addEventListener('click', async () => {
+    try {
+      await invoke<PermissionStatus>('request_accessibility_permission');
+      await invoke('open_privacy_settings', { target: 'accessibility' });
+    } catch (error) {
+      console.error('❌ 请求辅助功能权限失败:', error);
+    }
+
+    await loadPermissionStatus(true);
+  });
+
+  document.getElementById('openInputMonitoringBtn')?.addEventListener('click', async () => {
+    try {
+      await invoke('open_privacy_settings', { target: 'input-monitoring' });
+    } catch (error) {
+      console.error('❌ 打开输入监控设置失败:', error);
+    }
+  });
+
+  document.getElementById('refreshPermissionBtn')?.addEventListener('click', async () => {
+    await loadPermissionStatus(true);
+  });
+}
+
 function bindMixerEvents() {
   document.getElementById('categoryNav')?.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
@@ -2192,6 +2398,23 @@ function setupRenderLifecycle() {
   syncRenderingState();
 }
 
+async function loadPermissionStatus(isTauri: boolean) {
+  if (!isTauri) {
+    permissionStatus = null;
+    syncPermissionUI();
+    return;
+  }
+
+  try {
+    permissionStatus = await invoke<PermissionStatus>('get_permission_status');
+  } catch (error) {
+    permissionStatus = null;
+    console.error('❌ 权限状态获取失败:', error);
+  }
+
+  syncPermissionUI();
+}
+
 async function loadStartupWeather(isTauri: boolean) {
   if (!isTauri) {
     startupWeather = null;
@@ -2264,6 +2487,7 @@ async function main() {
   setupRenderLifecycle();
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  await loadPermissionStatus(Boolean(isTauri));
   await loadStartupWeather(Boolean(isTauri));
   updateEnergy(currentEnergy);
 

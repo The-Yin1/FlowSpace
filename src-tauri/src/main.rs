@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{command, Emitter, Manager};
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use std::thread::sleep;
 use device_query::{DeviceQuery, DeviceState, Keycode};
@@ -48,6 +50,18 @@ struct StartupWeather {
     location_source: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PermissionStatus {
+    platform: String,
+    accessibility_granted: bool,
+    input_monitoring_granted: bool,
+    input_monitoring_status: String,
+    should_show_guidance: bool,
+    accessibility_prompted: bool,
+    message: String,
+}
+
 struct FlowState {
     recent_timestamps: Vec<Instant>,
     current_energy: f64,
@@ -94,9 +108,235 @@ fn map_weather_code_to_ambience(weather_code: i32) -> &'static str {
     }
 }
 
+fn ensure_keyboard_listener_running(
+    flow_state_listener: Arc<Mutex<FlowState>>,
+    listener_started: Arc<AtomicBool>,
+) {
+    if listener_started.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    std::thread::spawn(move || {
+        println!("🎯 正在启动全局键盘监听...");
+
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
+            let device_state = DeviceState::new();
+
+            loop {
+                sleep(Duration::from_millis(20));
+
+                let keys: Vec<Keycode> = device_state.get_keys();
+
+                let mut state = flow_state_listener.lock();
+
+                if !keys.is_empty() {
+                    let new_keys: Vec<_> = keys
+                        .iter()
+                        .filter(|k| !state.last_keys.contains(k))
+                        .cloned()
+                        .collect();
+
+                    if !new_keys.is_empty() {
+                        state.record_stroke();
+                    }
+                }
+
+                state.last_keys = keys;
+            }
+        }));
+
+        if let Err(e) = result {
+            listener_started.store(false, Ordering::SeqCst);
+            println!("⚠️ 全局键盘监听失败（这可能是由于 macOS 权限问题），错误: {:?}", e);
+            println!("💡 请确认已同时开启“辅助功能”和“输入监控”，然后重新启动 FlowSpace。");
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+mod macos_permissions {
+    use super::PermissionStatus;
+    use core_foundation::base::TCFType;
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::{CFString, CFStringRef};
+    use std::ffi::c_void;
+
+    type CFDictionaryRef = *const c_void;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
+        fn CGPreflightListenEventAccess() -> bool;
+        fn CGRequestListenEventAccess() -> bool;
+        static kAXTrustedCheckOptionPrompt: CFStringRef;
+    }
+
+    fn accessibility_trusted_with_prompt(prompt: bool) -> bool {
+        if !prompt {
+            return unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) };
+        }
+
+        let prompt_key = unsafe { CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt) };
+        let prompt_value = CFBoolean::true_value();
+        let options = CFDictionary::from_CFType_pairs(&[(prompt_key.as_CFType(), prompt_value.as_CFType())]);
+
+        unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef() as CFDictionaryRef) }
+    }
+
+    fn is_accessibility_granted() -> bool {
+        accessibility_trusted_with_prompt(false)
+    }
+
+    fn prompt_for_accessibility_if_needed() -> bool {
+        if is_accessibility_granted() {
+            return false;
+        }
+
+        let _ = accessibility_trusted_with_prompt(true);
+
+        true
+    }
+
+    fn is_input_monitoring_granted() -> bool {
+        unsafe { CGPreflightListenEventAccess() }
+    }
+
+    fn request_input_monitoring_if_needed() -> bool {
+        if is_input_monitoring_granted() {
+            return false;
+        }
+
+        let _ = unsafe { CGRequestListenEventAccess() };
+        true
+    }
+
+    pub fn get_permission_status(prompt_if_needed: bool) -> PermissionStatus {
+        let accessibility_granted = is_accessibility_granted();
+        let mut input_monitoring_granted = is_input_monitoring_granted();
+        let accessibility_prompted = if prompt_if_needed && !accessibility_granted {
+            prompt_for_accessibility_if_needed()
+        } else {
+            false
+        };
+
+        if prompt_if_needed && accessibility_granted && !input_monitoring_granted {
+            let _ = request_input_monitoring_if_needed();
+            input_monitoring_granted = is_input_monitoring_granted();
+        }
+
+        let message = if accessibility_granted && input_monitoring_granted {
+            "已检测到“辅助功能”和“输入监控”权限，键盘监听环境已就绪。".to_string()
+        } else if !accessibility_granted && !input_monitoring_granted {
+            "尚未授予“辅助功能”和“输入监控”权限。请在系统设置中同时开启这两个权限，否则无法稳定统计全局键盘输入。".to_string()
+        } else if !accessibility_granted {
+            "尚未授予“辅助功能”权限。请在系统设置中开启“辅助功能”，否则无法稳定统计全局键盘输入。".to_string()
+        } else if !input_monitoring_granted {
+            "已检测到“辅助功能”权限，但“输入监控”尚未开启。请在系统设置中为 FlowSpace 打开“输入监控”。".to_string()
+        } else if accessibility_prompted {
+            "尚未授予“辅助功能”权限，系统已尝试弹出授权提示。请同时在“辅助功能”和“输入监控”中为 FlowSpace 打开开关，然后重启应用。".to_string()
+        } else {
+            "尚未授予“辅助功能”权限。请在系统设置中同时开启“辅助功能”和“输入监控”，否则无法稳定统计全局键盘输入。".to_string()
+        };
+
+        PermissionStatus {
+            platform: "macos".to_string(),
+            accessibility_granted,
+            input_monitoring_granted,
+            input_monitoring_status: if input_monitoring_granted {
+                "granted".to_string()
+            } else {
+                "missing".to_string()
+            },
+            should_show_guidance: !(accessibility_granted && input_monitoring_granted),
+            accessibility_prompted,
+            message,
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn get_permission_status_internal(_prompt_if_needed: bool) -> PermissionStatus {
+    PermissionStatus {
+        platform: std::env::consts::OS.to_string(),
+        accessibility_granted: true,
+        input_monitoring_granted: true,
+        input_monitoring_status: "not-required".to_string(),
+        should_show_guidance: false,
+        accessibility_prompted: false,
+        message: "当前平台无需额外的 macOS 隐私权限提示。".to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn get_permission_status_internal(prompt_if_needed: bool) -> PermissionStatus {
+    macos_permissions::get_permission_status(prompt_if_needed)
+}
+
 #[command]
 fn record_key_stroke(state: tauri::State<Arc<Mutex<FlowState>>>) {
     state.lock().record_stroke();
+}
+
+#[command]
+fn get_permission_status(
+    flow_state: tauri::State<Arc<Mutex<FlowState>>>,
+    listener_started: tauri::State<Arc<AtomicBool>>,
+) -> PermissionStatus {
+    let status = get_permission_status_internal(false);
+    if status.accessibility_granted {
+        ensure_keyboard_listener_running(
+            Arc::clone(flow_state.inner()),
+            Arc::clone(listener_started.inner()),
+        );
+    }
+
+    status
+}
+
+#[command]
+fn request_accessibility_permission(
+    flow_state: tauri::State<Arc<Mutex<FlowState>>>,
+    listener_started: tauri::State<Arc<AtomicBool>>,
+) -> PermissionStatus {
+    let status = get_permission_status_internal(true);
+    if status.accessibility_granted {
+        ensure_keyboard_listener_running(
+            Arc::clone(flow_state.inner()),
+            Arc::clone(listener_started.inner()),
+        );
+    }
+
+    status
+}
+
+#[command]
+fn open_privacy_settings(target: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let url = match target.as_str() {
+            "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "input-monitoring" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+            _ => return Err(format!("不支持的权限设置目标: {target}")),
+        };
+
+        let status = Command::new("open")
+            .arg(url)
+            .status()
+            .map_err(|err| format!("打开系统设置失败: {err}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("系统设置命令退出异常: {status}"))
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = target;
+        Err("当前平台不支持打开 macOS 隐私设置。".to_string())
+    }
 }
 
 #[command]
@@ -212,41 +452,23 @@ fn main() {
             println!("🚀 FlowSpace 正在启动...");
             
             let flow_state = Arc::new(Mutex::new(FlowState::new()));
+            let listener_started = Arc::new(AtomicBool::new(false));
             app.manage(Arc::clone(&flow_state));
+            app.manage(Arc::clone(&listener_started));
             
             let flow_state_timer = Arc::clone(&flow_state);
             let flow_state_listener = Arc::clone(&flow_state);
+            let permission_status = get_permission_status_internal(false);
 
-            std::thread::spawn(move || {
-                println!("🎯 正在启动全局键盘监听...");
-                
-                let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
-                    let device_state = DeviceState::new();
-                    
-                    loop {
-                        sleep(Duration::from_millis(20));
-                        
-                        let keys: Vec<Keycode> = device_state.get_keys();
-                        
-                        let mut state = flow_state_listener.lock();
-                        
-                        if !keys.is_empty() {
-                            let new_keys: Vec<_> = keys.iter().filter(|k| !state.last_keys.contains(k)).cloned().collect();
-                            
-                            if !new_keys.is_empty() {
-                                state.record_stroke();
-                            }
-                        }
-                        
-                        state.last_keys = keys;
-                    }
-                }));
-                
-                if let Err(e) = result {
-                    println!("⚠️ 全局键盘监听失败（这可能是由于 macOS 权限问题），错误: {:?}", e);
-                    println!("💡 程序将继续运行在窗口监听模式！");
-                }
-            });
+            if permission_status.should_show_guidance {
+                println!("🔐 macOS 权限状态: {}", permission_status.message);
+            }
+
+            if permission_status.accessibility_granted {
+                ensure_keyboard_listener_running(flow_state_listener, Arc::clone(&listener_started));
+            } else {
+                println!("⏸️ 当前未获得完整的 macOS 键盘监听权限，启动阶段不会主动弹窗；请在前端权限引导条中手动授权。");
+            }
 
             std::thread::spawn(move || {
                 println!("📡 开始发送心流数据到前端...");
@@ -288,7 +510,10 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             record_key_stroke,
-            fetch_startup_weather
+            fetch_startup_weather,
+            get_permission_status,
+            request_accessibility_permission,
+            open_privacy_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
