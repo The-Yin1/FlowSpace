@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use tauri::{command, Emitter, Manager};
+use tauri::{command, Emitter, LogicalSize, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -444,10 +445,46 @@ async fn resolve_location_from_ip() -> Result<(f64, f64, String, String, String)
     ))
 }
 
+#[command]
+fn set_mini_mode(window: tauri::Window, is_mini: bool) -> Result<(), String> {
+    if is_mini {
+        window
+            .set_size(LogicalSize::new(180.0, 50.0))
+            .map_err(|e| format!("Failed to set mini size: {e}"))?;
+        window
+            .set_always_on_top(true)
+            .map_err(|e| format!("Failed to set always on top: {e}"))?;
+        let _ = window.set_resizable(false);
+        let _ = window.set_decorations(false);
+    } else {
+        window
+            .set_decorations(true)
+            .map_err(|e| format!("Failed to restore decorations: {e}"))?;
+        window
+            .set_size(LogicalSize::new(1024.0, 640.0))
+            .map_err(|e| format!("Failed to restore size: {e}"))?;
+        window
+            .set_always_on_top(false)
+            .map_err(|e| format!("Failed to unset always on top: {e}"))?;
+        let _ = window.set_resizable(true);
+        let _ = window.center();
+    }
+
+    Ok(())
+}
+
+#[command]
+fn set_window_click_through(window: tauri::Window, ignore: bool) -> Result<(), String> {
+    window
+        .set_ignore_cursor_events(ignore)
+        .map_err(|e| format!("Failed to set ignore cursor events: {e}"))
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let app_handle = app.app_handle().clone();
+            let ghost_handle = app_handle.clone();
             
             println!("🚀 FlowSpace 正在启动...");
             
@@ -504,16 +541,28 @@ fn main() {
             });
             
             println!("✅ FlowSpace 启动完成！");
-            
+
+            // 注册全局快捷键 Option(Alt)+G，用于退出 Ghost 穿透模式
+            app.global_shortcut()
+                .on_shortcut("Alt+G", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let _ = ghost_handle.emit("ghost-mode-exit", ());
+                    }
+                })
+                .expect("Failed to register global shortcut Alt+G");
+
             Ok(())
         })
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             record_key_stroke,
             fetch_startup_weather,
             get_permission_status,
             request_accessibility_permission,
-            open_privacy_settings
+            open_privacy_settings,
+            set_mini_mode,
+            set_window_click_through
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

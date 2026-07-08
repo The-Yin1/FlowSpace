@@ -102,6 +102,8 @@ let playlistEmbedState: PlaylistEmbedState = {
 };
 let selectedCategoryId: MixerCategoryId = 'nature';
 let masterAudioState: MasterAudioState = 'idle';
+let viewMode: 'standard' | 'mini' = 'standard';
+let isGhostMode = false;
 
 const audioMixerData: AudioMixerCategory[] = [
   {
@@ -1401,6 +1403,221 @@ function createUI() {
           width: 100%;
         }
       }
+
+      /* ---------- Mini Capsule Mode ---------- */
+      .fs-workspace,
+      .fs-topbar,
+      .fs-permission-banner,
+      .fs-settings-backdrop,
+      .fs-settings-panel {
+        transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      #uiOverlay.is-mini .fs-topbar,
+      #uiOverlay.is-mini .fs-workspace,
+      #uiOverlay.is-mini .fs-permission-banner,
+      #uiOverlay.is-mini .fs-settings-backdrop,
+      #uiOverlay.is-mini .fs-settings-panel {
+        opacity: 0;
+        pointer-events: none;
+        transform: scale(0.96);
+      }
+
+      .fs-mini-capsule {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      #uiOverlay.is-mini .fs-mini-capsule {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .fs-mini-capsule-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 16px;
+        border-radius: 25px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(18, 20, 28, 0.72);
+        backdrop-filter: blur(22px) saturate(140%);
+        -webkit-backdrop-filter: blur(22px) saturate(140%);
+        box-shadow:
+          0 8px 32px rgba(0, 0, 0, 0.35),
+          0 0 26px rgba(0, 240, 255, 0.06),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        /* macOS native drag region */
+        -webkit-app-region: drag;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: move;
+      }
+
+      .fs-mini-capsule-icon {
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.16), rgba(0, 240, 255, 0.08) 42%, rgba(112, 90, 255, 0.06) 66%);
+        box-shadow: 0 0 12px rgba(0, 240, 255, 0.1);
+        font-size: 0.9rem;
+        color: rgba(255, 255, 255, 0.88);
+        pointer-events: none;
+      }
+
+      .fs-mini-capsule-icon .capsule-ripple {
+        position: absolute;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 240, 255, 0.3);
+        animation: capsule-ripple 2.2s ease-out infinite;
+        pointer-events: none;
+      }
+
+      .fs-mini-capsule-icon .capsule-ripple:nth-child(2) {
+        animation-delay: 0.7s;
+      }
+
+      @keyframes capsule-ripple {
+        0% {
+          transform: scale(1);
+          opacity: 0.5;
+        }
+        100% {
+          transform: scale(2.2);
+          opacity: 0;
+        }
+      }
+
+      .fs-mini-capsule-energy {
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: rgba(100, 255, 180, 0.92);
+        text-shadow:
+          0 0 12px rgba(100, 255, 180, 0.2),
+          0 0 24px rgba(0, 240, 180, 0.08);
+        pointer-events: none;
+      }
+
+      .fs-mini-capsule-restore {
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.72rem;
+        cursor: pointer;
+        transition: all 0.24s ease;
+        -webkit-app-region: no-drag;
+        pointer-events: auto;
+      }
+
+      .fs-mini-capsule-restore:hover {
+        background: rgba(255, 255, 255, 0.16);
+        color: rgba(255, 255, 255, 0.92);
+      }
+
+      /* ---------- Ghost Mode (Click-through) ---------- */
+      #uiOverlay.is-ghost .fs-topbar,
+      #uiOverlay.is-ghost .fs-workspace,
+      #uiOverlay.is-ghost .fs-mini-capsule,
+      #uiOverlay.is-ghost .fs-settings-panel,
+      #uiOverlay.is-ghost .fs-settings-backdrop.is-open {
+        opacity: 0.12;
+        transition: opacity 0.5s ease;
+      }
+
+      #uiOverlay.is-ghost .fs-permission-banner {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* ghost mode hint toast */
+      .fs-ghost-toast {
+        position: fixed;
+        bottom: 32px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 40;
+        padding: 10px 20px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(10, 12, 18, 0.8);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 0.76rem;
+        letter-spacing: 0.06em;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.4s ease;
+        white-space: nowrap;
+      }
+
+      #uiOverlay.is-ghost .fs-ghost-toast {
+        opacity: 1;
+      }
+
+      /* ---------- Mode control buttons ---------- */
+      .fs-mode-button {
+        width: 38px;
+        height: 38px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 0.85rem;
+        cursor: pointer;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        transition: all 0.24s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .fs-mode-button:hover {
+        background: rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 0 16px rgba(0, 240, 255, 0.1);
+      }
+
+      .fs-mode-button.is-active {
+        border-color: rgba(255, 255, 255, 0.16);
+        background: rgba(0, 240, 255, 0.12);
+        color: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 0 18px rgba(0, 240, 255, 0.16);
+      }
+
+      .fs-mode-button svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
     </style>
     <div id="visualContainer" style="position: fixed; inset: 0; z-index: 1;"></div>
     <div id="uiOverlay">
@@ -1427,6 +1644,12 @@ function createUI() {
         </div>
         <div class="fs-topbar-actions">
           <button id="audioControlBtn" class="fs-audio-control" type="button">启动音频</button>
+          <button id="miniModeBtn" class="fs-mode-button" type="button" aria-label="微缩胶囊模式" title="微缩胶囊模式">
+            <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="5"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </button>
+          <button id="ghostModeBtn" class="fs-mode-button" type="button" aria-label="穿透壁纸模式" title="穿透壁纸模式">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9" stroke-dasharray="4 3"/></svg>
+          </button>
           <button id="settingsToggleBtn" class="fs-settings-button" type="button" aria-label="打开设置">⚙</button>
         </div>
       </header>
@@ -1547,6 +1770,22 @@ function createUI() {
           <button id="settingsSaveBtn" class="fs-button-primary" type="button">保存设置</button>
         </div>
       </aside>
+
+      <!-- Mini Capsule View -->
+      <div class="fs-mini-capsule">
+        <div class="fs-mini-capsule-bar" data-tauri-drag-region>
+          <div class="fs-mini-capsule-icon" style="position:relative;">
+            <span id="miniCapsuleIcon">✦</span>
+            <span class="capsule-ripple"></span>
+            <span class="capsule-ripple"></span>
+          </div>
+          <span id="miniCapsuleEnergy" class="fs-mini-capsule-energy">0.0% FLOW</span>
+          <button id="miniRestoreBtn" class="fs-mini-capsule-restore" type="button" aria-label="恢复大窗口" title="恢复大窗口">↩</button>
+        </div>
+      </div>
+
+      <!-- Ghost mode hint toast -->
+      <div class="fs-ghost-toast">Ghost Mode · 按 Option(⌥)+G 退出穿透</div>
     </div>
   `;
 
@@ -1561,6 +1800,7 @@ function createUI() {
   }
 
   bindTopBarEvents();
+  bindModeControlEvents();
   bindPermissionEvents();
   bindMixerEvents();
   bindSettingsPanelEvents();
@@ -2240,6 +2480,96 @@ function bindTopBarEvents() {
   });
 }
 
+function bindModeControlEvents() {
+  const miniModeBtn = document.getElementById('miniModeBtn');
+  const ghostModeBtn = document.getElementById('ghostModeBtn');
+  const miniRestoreBtn = document.getElementById('miniRestoreBtn');
+
+  miniModeBtn?.addEventListener('click', async () => {
+    if (isGhostMode) return;
+    const nextMini = viewMode !== 'mini';
+    viewMode = nextMini ? 'mini' : 'standard';
+    syncModeUI();
+    try {
+      await invoke('set_mini_mode', { isMini: nextMini });
+    } catch (error) {
+      console.error('Failed to set mini mode:', error);
+    }
+  });
+
+  ghostModeBtn?.addEventListener('click', async () => {
+    if (viewMode === 'mini') return;
+    isGhostMode = !isGhostMode;
+    syncModeUI();
+    try {
+      await invoke('set_window_click_through', { ignore: isGhostMode });
+    } catch (error) {
+      console.error('Failed to set click-through:', error);
+      isGhostMode = !isGhostMode;
+      syncModeUI();
+    }
+  });
+
+  miniRestoreBtn?.addEventListener('click', async () => {
+    viewMode = 'standard';
+    syncModeUI();
+    try {
+      await invoke('set_mini_mode', { isMini: false });
+    } catch (error) {
+      console.error('Failed to restore from mini mode:', error);
+    }
+  });
+}
+
+function setupGhostModeListener(isTauri: boolean) {
+  if (!isTauri) return;
+  listen('ghost-mode-exit', async () => {
+    if (isGhostMode) {
+      isGhostMode = false;
+      syncModeUI();
+      try {
+        await invoke('set_window_click_through', { ignore: false });
+      } catch (error) {
+        console.error('Failed to exit ghost mode:', error);
+      }
+    }
+  });
+}
+
+function syncModeUI() {
+  const uiOverlay = document.getElementById('uiOverlay');
+  const miniModeBtn = document.getElementById('miniModeBtn');
+  const ghostModeBtn = document.getElementById('ghostModeBtn');
+
+  uiOverlay?.classList.toggle('is-mini', viewMode === 'mini');
+  uiOverlay?.classList.toggle('is-ghost', isGhostMode);
+
+  miniModeBtn?.classList.toggle('is-active', viewMode === 'mini');
+  ghostModeBtn?.classList.toggle('is-active', isGhostMode);
+
+  // Update mini capsule energy display
+  const miniEnergyEl = document.getElementById('miniCapsuleEnergy');
+  if (miniEnergyEl) {
+    miniEnergyEl.textContent = `${(currentEnergy * 100).toFixed(1)}% FLOW`;
+  }
+
+  // Update mini capsule icon based on active tracks
+  const miniIconEl = document.getElementById('miniCapsuleIcon');
+  if (miniIconEl) {
+    const activeTracks = mixerTracks.filter((t) => getTrackRuntimeState(t.id).isActive && t.src);
+    if (activeTracks.length > 0) {
+      miniIconEl.textContent = getIconGlyph(activeTracks[0].icon);
+    } else {
+      miniIconEl.textContent = masterAudioState === 'running' ? '✦' : '◌';
+    }
+  }
+
+  // Disable ghost button when in mini mode
+  if (ghostModeBtn) {
+    (ghostModeBtn as HTMLButtonElement).disabled = viewMode === 'mini';
+  }
+}
+
 function bindPermissionEvents() {
   document.getElementById('requestAccessibilityBtn')?.addEventListener('click', async () => {
     try {
@@ -2478,6 +2808,12 @@ function updateEnergy(energy: number) {
     uiOverlay.style.setProperty('--energy-glow-color', glowColor);
   }
 
+  // Update mini capsule energy display
+  const miniEnergyEl = document.getElementById('miniCapsuleEnergy');
+  if (miniEnergyEl) {
+    miniEnergyEl.textContent = `${(energy * 100).toFixed(1)}% FLOW`;
+  }
+
   audioManager.updateEnergy(energy);
   visualManager?.updateEnergy(energy);
 }
@@ -2492,6 +2828,7 @@ async function main() {
   updateEnergy(currentEnergy);
 
   if (isTauri) {
+    setupGhostModeListener(true);
     try {
       await listen<number>('flow-energy-update', (event) => {
         updateEnergy(event.payload);
