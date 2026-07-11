@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   AudioManager,
   type AudioConfig,
@@ -1423,6 +1424,11 @@ function createUI() {
         transform: scale(0.96);
       }
 
+      /* 关键：mini 模式下恢复 overlay 本身的事件穿透，否则子元素 pointer-events: auto 也会被父级 none 拦截 */
+      #uiOverlay.is-mini {
+        pointer-events: auto;
+      }
+
       .fs-mini-capsule {
         position: fixed;
         top: 0;
@@ -1436,6 +1442,9 @@ function createUI() {
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: move;
       }
 
       #uiOverlay.is-mini .fs-mini-capsule {
@@ -1457,11 +1466,6 @@ function createUI() {
           0 8px 32px rgba(0, 0, 0, 0.35),
           0 0 26px rgba(0, 240, 255, 0.06),
           inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        /* macOS native drag region */
-        -webkit-app-region: drag;
-        user-select: none;
-        -webkit-user-select: none;
-        cursor: move;
       }
 
       .fs-mini-capsule-icon {
@@ -1476,7 +1480,6 @@ function createUI() {
         box-shadow: 0 0 12px rgba(0, 240, 255, 0.1);
         font-size: 0.9rem;
         color: rgba(255, 255, 255, 0.88);
-        pointer-events: none;
       }
 
       .fs-mini-capsule-icon .capsule-ripple {
@@ -1512,7 +1515,6 @@ function createUI() {
         text-shadow:
           0 0 12px rgba(100, 255, 180, 0.2),
           0 0 24px rgba(0, 240, 180, 0.08);
-        pointer-events: none;
       }
 
       .fs-mini-capsule-restore {
@@ -1528,8 +1530,13 @@ function createUI() {
         font-size: 0.72rem;
         cursor: pointer;
         transition: all 0.24s ease;
-        -webkit-app-region: no-drag;
-        pointer-events: auto;
+      }
+
+      /* 确保胶囊内所有可交互元素不会被误杀 */
+      .fs-mini-capsule button,
+      .fs-mini-capsule [class*="btn"],
+      .fs-mini-capsule [class*="icon"] {
+        pointer-events: auto !important;
       }
 
       .fs-mini-capsule-restore:hover {
@@ -1772,8 +1779,8 @@ function createUI() {
       </aside>
 
       <!-- Mini Capsule View -->
-      <div class="fs-mini-capsule">
-        <div class="fs-mini-capsule-bar" data-tauri-drag-region>
+      <div class="fs-mini-capsule" data-tauri-drag-region>
+        <div class="fs-mini-capsule-bar">
           <div class="fs-mini-capsule-icon" style="position:relative;">
             <span id="miniCapsuleIcon">✦</span>
             <span class="capsule-ripple"></span>
@@ -2521,6 +2528,35 @@ function bindModeControlEvents() {
   });
 }
 
+function setupCapsuleDrag() {
+  const capsuleEl = document.querySelector('.fs-mini-capsule') as HTMLElement | null;
+  if (!capsuleEl) return;
+
+  const appWindow = getCurrentWindow();
+  capsuleEl.addEventListener('mousedown', async (event) => {
+    const target = event.target as HTMLElement;
+
+    if (
+      target.tagName === 'BUTTON' ||
+      target.closest('button') ||
+      target.closest('[class*="btn"]') ||
+      target.closest('#miniRestoreBtn')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (event.buttons === 1) {
+      try {
+        await appWindow.startDragging();
+      } catch (err) {
+        console.error('Failed to drag window:', err);
+      }
+    }
+  });
+}
+
 function setupGhostModeListener(isTauri: boolean) {
   if (!isTauri) return;
   listen('ghost-mode-exit', async () => {
@@ -2829,6 +2865,7 @@ async function main() {
 
   if (isTauri) {
     setupGhostModeListener(true);
+    setupCapsuleDrag();
     try {
       await listen<number>('flow-energy-update', (event) => {
         updateEnergy(event.payload);
