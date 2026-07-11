@@ -2925,7 +2925,8 @@ function setupRenderLifecycle() {
       return;
     }
 
-    const shouldRender = !document.hidden && document.hasFocus();
+    // Tauri 窗口在启动瞬间可能尚未获得焦点，但欢迎页需要立即渲染。
+    const shouldRender = !document.hidden;
     visualManager.setRenderingActive(shouldRender);
   };
 
