@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::{command, Emitter, LogicalSize, Manager};
+use tauri::{command, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +14,13 @@ const MAX_WPM: f64 = 120.0;
 const WINDOW_SECONDS: u64 = 5;
 const TICK_MS: u64 = 100;
 const DECAY_FACTOR: f64 = 0.95;
+const DEFAULT_WINDOW_WIDTH: f64 = 1100.0;
+const DEFAULT_WINDOW_HEIGHT: f64 = 680.0;
+const DEFAULT_MIN_WIDTH: f64 = 960.0;
+const DEFAULT_MIN_HEIGHT: f64 = 600.0;
+const MINI_WINDOW_WIDTH: f64 = 180.0;
+const MINI_WINDOW_HEIGHT: f64 = 50.0;
+
 #[derive(Debug, Deserialize)]
 struct OpenMeteoResponse {
     current: OpenMeteoCurrent,
@@ -68,6 +75,16 @@ struct FlowState {
     current_energy: f64,
     last_energy: f64,
     last_keys: Vec<Keycode>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WindowSnapshot {
+    position: Option<PhysicalPosition<i32>>,
+    size: PhysicalSize<u32>,
+}
+
+struct WindowRestoreState {
+    standard_snapshot: Mutex<Option<WindowSnapshot>>,
 }
 
 impl FlowState {
@@ -446,28 +463,74 @@ async fn resolve_location_from_ip() -> Result<(f64, f64, String, String, String)
 }
 
 #[command]
-fn set_mini_mode(window: tauri::Window, is_mini: bool) -> Result<(), String> {
+fn set_mini_mode(
+    window: tauri::Window,
+    is_mini: bool,
+    restore_state: State<'_, WindowRestoreState>,
+) -> Result<(), String> {
     if is_mini {
-        window
-            .set_size(LogicalSize::new(180.0, 50.0))
-            .map_err(|e| format!("Failed to set mini size: {e}"))?;
-        window
-            .set_always_on_top(true)
-            .map_err(|e| format!("Failed to set always on top: {e}"))?;
+        let snapshot = WindowSnapshot {
+            position: window.outer_position().ok(),
+            size: window
+                .inner_size()
+                .map_err(|e| format!("Failed to read window size: {e}"))?,
+        };
+        *restore_state.standard_snapshot.lock() = Some(snapshot);
+
+        let _ = window.set_ignore_cursor_events(false);
+        let _ = window.set_always_on_top(true);
         let _ = window.set_resizable(false);
         let _ = window.set_decorations(false);
+        let _ = window.set_min_size::<LogicalSize<f64>>(None);
+        window
+            .set_size(LogicalSize::new(MINI_WINDOW_WIDTH, MINI_WINDOW_HEIGHT))
+            .map_err(|e| format!("Failed to set mini size: {e}"))?;
     } else {
+        let snapshot = restore_state.standard_snapshot.lock().take();
+
         window
             .set_decorations(true)
             .map_err(|e| format!("Failed to restore decorations: {e}"))?;
         window
-            .set_size(LogicalSize::new(1024.0, 640.0))
-            .map_err(|e| format!("Failed to restore size: {e}"))?;
-        window
-            .set_always_on_top(false)
-            .map_err(|e| format!("Failed to unset always on top: {e}"))?;
-        let _ = window.set_resizable(true);
-        let _ = window.center();
+            .set_resizable(true)
+            .map_err(|e| format!("Failed to restore resizable: {e}"))?;
+        let _ = window.set_maximizable(true);
+        let _ = window.set_minimizable(true);
+        let _ = window.set_closable(true);
+        let _ = window.set_fullscreen(false);
+        let _ = window.set_always_on_top(false);
+        let _ = window.set_ignore_cursor_events(false);
+        let _ = window.set_min_size(Some(LogicalSize::new(
+            DEFAULT_MIN_WIDTH,
+            DEFAULT_MIN_HEIGHT,
+        )));
+
+        match snapshot {
+            Some(snapshot) => {
+                window
+                    .set_size(snapshot.size)
+                    .map_err(|e| format!("Failed to restore saved size: {e}"))?;
+                if let Some(position) = snapshot.position {
+                    window
+                        .set_position(position)
+                        .map_err(|e| format!("Failed to restore saved position: {e}"))?;
+                } else {
+                    window
+                        .set_size(LogicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT))
+                        .map_err(|e| format!("Failed to restore default size: {e}"))?;
+                    let _ = window.center();
+                }
+            }
+            None => {
+                window
+                    .set_size(LogicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT))
+                    .map_err(|e| format!("Failed to restore default size: {e}"))?;
+                let _ = window.center();
+            }
+        }
+
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 
     Ok(())
@@ -490,12 +553,30 @@ fn main() {
             
             let flow_state = Arc::new(Mutex::new(FlowState::new()));
             let listener_started = Arc::new(AtomicBool::new(false));
+            let restore_state = WindowRestoreState {
+                standard_snapshot: Mutex::new(None),
+            };
             app.manage(Arc::clone(&flow_state));
             app.manage(Arc::clone(&listener_started));
+            app.manage(restore_state);
             
             let flow_state_timer = Arc::clone(&flow_state);
             let flow_state_listener = Arc::clone(&flow_state);
             let permission_status = get_permission_status_internal(false);
+
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.set_decorations(true);
+                let _ = main_window.set_resizable(true);
+                let _ = main_window.set_maximizable(true);
+                let _ = main_window.set_minimizable(true);
+                let _ = main_window.set_closable(true);
+                let _ = main_window.set_fullscreen(false);
+                let _ = main_window.set_always_on_top(false);
+                let _ = main_window.set_min_size(Some(LogicalSize::new(
+                    DEFAULT_MIN_WIDTH,
+                    DEFAULT_MIN_HEIGHT,
+                )));
+            }
 
             if permission_status.should_show_guidance {
                 println!("🔐 macOS 权限状态: {}", permission_status.message);

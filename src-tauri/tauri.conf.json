@@ -21,6 +21,9 @@
         "decorations": true,
         "transparent": false,
         "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
         "visible": true,
         "alwaysOnTop": false
       }

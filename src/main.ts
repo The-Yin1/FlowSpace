@@ -82,6 +82,15 @@ type TrackRuntimeState = {
 };
 
 type MasterAudioState = 'idle' | 'running' | 'paused';
+type WindowResizeDirection =
+  | 'North'
+  | 'South'
+  | 'East'
+  | 'West'
+  | 'NorthEast'
+  | 'NorthWest'
+  | 'SouthEast'
+  | 'SouthWest';
 
 const audioManager = new AudioManager();
 let visualManager: VisualManager | null = null;
@@ -1544,6 +1553,91 @@ function createUI() {
         color: rgba(255, 255, 255, 0.92);
       }
 
+      .fs-window-resize-handles {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        pointer-events: none;
+      }
+
+      .fs-window-resize-handle {
+        position: absolute;
+        pointer-events: auto;
+        background: transparent;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="North"],
+      .fs-window-resize-handle[data-resize-direction="South"] {
+        left: 12px;
+        right: 12px;
+        height: 6px;
+        cursor: ns-resize;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="North"] {
+        top: 0;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="South"] {
+        bottom: 0;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="East"],
+      .fs-window-resize-handle[data-resize-direction="West"] {
+        top: 12px;
+        bottom: 12px;
+        width: 6px;
+        cursor: ew-resize;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="East"] {
+        right: 0;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="West"] {
+        left: 0;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="NorthEast"],
+      .fs-window-resize-handle[data-resize-direction="SouthWest"] {
+        width: 12px;
+        height: 12px;
+        cursor: nesw-resize;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="NorthWest"],
+      .fs-window-resize-handle[data-resize-direction="SouthEast"] {
+        width: 12px;
+        height: 12px;
+        cursor: nwse-resize;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="NorthEast"] {
+        top: 0;
+        right: 0;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="NorthWest"] {
+        top: 0;
+        left: 0;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="SouthEast"] {
+        right: 0;
+        bottom: 0;
+      }
+
+      .fs-window-resize-handle[data-resize-direction="SouthWest"] {
+        left: 0;
+        bottom: 0;
+      }
+
+      body.is-native-fullscreen .fs-window-resize-handles,
+      body.is-mini-mode .fs-window-resize-handles {
+        opacity: 0;
+        pointer-events: none;
+      }
+
       /* ---------- Ghost Mode (Click-through) ---------- */
       #uiOverlay.is-ghost .fs-topbar,
       #uiOverlay.is-ghost .fs-workspace,
@@ -1779,7 +1873,7 @@ function createUI() {
       </aside>
 
       <!-- Mini Capsule View -->
-      <div class="fs-mini-capsule" data-tauri-drag-region>
+      <div class="fs-mini-capsule">
         <div class="fs-mini-capsule-bar">
           <div class="fs-mini-capsule-icon" style="position:relative;">
             <span id="miniCapsuleIcon">✦</span>
@@ -1793,6 +1887,16 @@ function createUI() {
 
       <!-- Ghost mode hint toast -->
       <div class="fs-ghost-toast">Ghost Mode · 按 Option(⌥)+G 退出穿透</div>
+    </div>
+    <div class="fs-window-resize-handles" aria-hidden="true">
+      <div class="fs-window-resize-handle" data-resize-direction="North"></div>
+      <div class="fs-window-resize-handle" data-resize-direction="South"></div>
+      <div class="fs-window-resize-handle" data-resize-direction="East"></div>
+      <div class="fs-window-resize-handle" data-resize-direction="West"></div>
+      <div class="fs-window-resize-handle" data-resize-direction="NorthEast"></div>
+      <div class="fs-window-resize-handle" data-resize-direction="NorthWest"></div>
+      <div class="fs-window-resize-handle" data-resize-direction="SouthEast"></div>
+      <div class="fs-window-resize-handle" data-resize-direction="SouthWest"></div>
     </div>
   `;
 
@@ -2557,6 +2661,72 @@ function setupCapsuleDrag() {
   });
 }
 
+async function ensureStandardWindowState(appWindow: ReturnType<typeof getCurrentWindow>) {
+  await Promise.all([
+    appWindow.setResizable(true),
+    appWindow.setMaximizable(true),
+    appWindow.setMinimizable(true),
+    appWindow.setClosable(true),
+    appWindow.setFullscreen(false),
+  ]);
+}
+
+async function syncNativeWindowState(appWindow: ReturnType<typeof getCurrentWindow>) {
+  const [isFullscreen, isResizable, isMaximizable] = await Promise.all([
+    appWindow.isFullscreen(),
+    appWindow.isResizable(),
+    appWindow.isMaximizable(),
+  ]);
+
+  document.body.classList.toggle('is-native-fullscreen', isFullscreen);
+  document.body.classList.toggle('is-mini-mode', viewMode === 'mini');
+
+  if (viewMode === 'standard' && (!isResizable || !isMaximizable)) {
+    await ensureStandardWindowState(appWindow);
+  }
+}
+
+function setupResizeHandles() {
+  const appWindow = getCurrentWindow();
+  document.querySelectorAll<HTMLElement>('.fs-window-resize-handle').forEach((handle) => {
+    handle.addEventListener('mousedown', async (event) => {
+      if (viewMode === 'mini' || isGhostMode || event.buttons !== 1) {
+        return;
+      }
+
+      event.preventDefault();
+      const direction = handle.dataset.resizeDirection as WindowResizeDirection | undefined;
+      if (!direction) {
+        return;
+      }
+
+      try {
+        await appWindow.startResizeDragging(direction);
+      } catch (error) {
+        console.error('Failed to start resize dragging:', error);
+      }
+    });
+  });
+}
+
+async function setupNativeWindowTracking() {
+  const appWindow = getCurrentWindow();
+  await ensureStandardWindowState(appWindow);
+  await syncNativeWindowState(appWindow);
+
+  await appWindow.onResized(async () => {
+    await syncNativeWindowState(appWindow);
+  });
+
+  await appWindow.onMoved(async () => {
+    await syncNativeWindowState(appWindow);
+  });
+
+  window.addEventListener('focus', () => {
+    void syncNativeWindowState(appWindow);
+  });
+}
+
 function setupGhostModeListener(isTauri: boolean) {
   if (!isTauri) return;
   listen('ghost-mode-exit', async () => {
@@ -2579,6 +2749,7 @@ function syncModeUI() {
 
   uiOverlay?.classList.toggle('is-mini', viewMode === 'mini');
   uiOverlay?.classList.toggle('is-ghost', isGhostMode);
+  document.body.classList.toggle('is-mini-mode', viewMode === 'mini');
 
   miniModeBtn?.classList.toggle('is-active', viewMode === 'mini');
   ghostModeBtn?.classList.toggle('is-active', isGhostMode);
@@ -2866,6 +3037,8 @@ async function main() {
   if (isTauri) {
     setupGhostModeListener(true);
     setupCapsuleDrag();
+    setupResizeHandles();
+    await setupNativeWindowTracking();
     try {
       await listen<number>('flow-energy-update', (event) => {
         updateEnergy(event.payload);
