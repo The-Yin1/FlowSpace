@@ -2519,6 +2519,21 @@ async function enableMasterAudio() {
   }
 
   masterAudioState = 'running';
+
+  // 自动激活定位天气匹配的自然环境轨道（仅针对有 mp3 源的轨道，无源轨道自动跳过不报错）
+  const weatherTrackIds = audioManager.getWeatherTrackIds();
+  for (const trackId of weatherTrackIds) {
+    const track = mixerTracks.find((t) => t.id === trackId);
+    if (track && track.src) {
+      const runtime = getTrackRuntimeState(trackId);
+      if (!runtime.isActive) {
+        runtime.isActive = true;
+        await playTrack(trackId);
+      }
+    }
+  }
+
+  // 恢复之前手动激活的其他轨道
   await resumeActiveTracks();
   syncHud();
   renderMixerGrid();
