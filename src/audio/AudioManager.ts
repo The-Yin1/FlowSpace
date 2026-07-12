@@ -153,7 +153,7 @@ export class AudioManager {
     }
 
     if (!providerWeather) {
-      const permissionSnapshot = await this.permissionManager.getPermissionSnapshot();
+      const permissionSnapshot = await this.permissionManager.getPermissionSnapshot(true);
       const fallback = this.buildFallbackWeatherContext(locationResult, errors, permissionSnapshot.state, permissionSnapshot.systemLocationEnabled);
       this.weatherContext = fallback;
       this.weatherAmbience = fallback.ambience;
@@ -176,7 +176,7 @@ export class AudioManager {
         })
       : null;
 
-    const permissionSnapshot = await this.permissionManager.getPermissionSnapshot();
+    const permissionSnapshot = await this.permissionManager.getPermissionSnapshot(true);
 
     const weatherContext: AudioWeatherContext = {
       ...providerWeather,
@@ -282,6 +282,7 @@ export class AudioManager {
           GEOLOCATION_TIMEOUT_MS + 8500,
           'macOS 原生定位请求超时，已降级到天气默认策略。',
         );
+        await this.permissionManager.refreshAfterNativeLocation(nativeLocation);
 
         return {
           coordinates: this.normalizeNativeLocation(nativeLocation),

@@ -18,7 +18,12 @@
     _finished = NO;
     _waitingForAuthorization = NO;
     _waitingForLocation = NO;
-    _authorizationStatus = [CLLocationManager authorizationStatus];
+    CLLocationManager *probeManager = [[CLLocationManager alloc] init];
+    if (@available(macOS 11.0, *)) {
+      _authorizationStatus = probeManager.authorizationStatus;
+    } else {
+      _authorizationStatus = [CLLocationManager authorizationStatus];
+    }
   }
   return self;
 }
@@ -63,6 +68,13 @@
 }
 
 @end
+
+static CLAuthorizationStatus FlowSpaceCurrentAuthorizationStatus(CLLocationManager *manager) {
+  if (@available(macOS 11.0, *)) {
+    return manager.authorizationStatus;
+  }
+  return [CLLocationManager authorizationStatus];
+}
 
 static NSString *FlowSpaceAuthorizationStatusString(CLAuthorizationStatus status) {
   switch (status) {
@@ -157,7 +169,7 @@ static NSDictionary *FlowSpaceRequestPermissionPayload(void) {
   FlowSpaceLocationDelegate *delegate = [[FlowSpaceLocationDelegate alloc] init];
   manager.delegate = delegate;
 
-  CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
+  CLAuthorizationStatus status = FlowSpaceCurrentAuthorizationStatus(manager);
   if (![CLLocationManager locationServicesEnabled] || status != kCLAuthorizationStatusNotDetermined) {
     return FlowSpacePermissionPayload(status);
   }
@@ -193,7 +205,12 @@ static NSDictionary *FlowSpaceRequestPermissionPayload(void) {
     };
   }
 
-  return FlowSpacePermissionPayload(delegate.authorizationStatus);
+  status = FlowSpaceCurrentAuthorizationStatus(manager);
+  if (status == kCLAuthorizationStatusNotDetermined) {
+    status = delegate.authorizationStatus;
+  }
+
+  return FlowSpacePermissionPayload(status);
 }
 
 static NSDictionary *FlowSpaceCurrentLocationPayload(void) {
@@ -202,7 +219,7 @@ static NSDictionary *FlowSpaceCurrentLocationPayload(void) {
   manager.delegate = delegate;
 
   BOOL servicesEnabled = [CLLocationManager locationServicesEnabled];
-  CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
+  CLAuthorizationStatus status = FlowSpaceCurrentAuthorizationStatus(manager);
 
   if (!servicesEnabled) {
     return @{
@@ -220,7 +237,10 @@ static NSDictionary *FlowSpaceCurrentLocationPayload(void) {
     }
 
     BOOL authCompleted = FlowSpaceRunLoopUntil(delegate, 12.0);
-    status = delegate.authorizationStatus;
+    status = FlowSpaceCurrentAuthorizationStatus(manager);
+    if (status == kCLAuthorizationStatusNotDetermined) {
+      status = delegate.authorizationStatus;
+    }
 
     if (!authCompleted) {
       return @{
@@ -273,6 +293,12 @@ static NSDictionary *FlowSpaceCurrentLocationPayload(void) {
   }
 
   CLLocation *location = delegate.location;
+  status = FlowSpaceCurrentAuthorizationStatus(manager);
+  if (status == kCLAuthorizationStatusNotDetermined) {
+    // 已经拿到系统返回的位置数据，按 macOS 实际行为可视为授权完成。
+    status = kCLAuthorizationStatusAuthorizedAlways;
+  }
+
   return @{
     @"ok": @YES,
     @"systemLocationEnabled": @YES,
@@ -286,7 +312,8 @@ static NSDictionary *FlowSpaceCurrentLocationPayload(void) {
 
 char *flowspace_location_status_json(void) {
   @autoreleasepool {
-    NSString *json = FlowSpaceJSONStringFromObject(FlowSpacePermissionPayload([CLLocationManager authorizationStatus]));
+    CLLocationManager *manager = [[CLLocationManager alloc] init];
+    NSString *json = FlowSpaceJSONStringFromObject(FlowSpacePermissionPayload(FlowSpaceCurrentAuthorizationStatus(manager)));
     return FlowSpaceCopyCString(json);
   }
 }

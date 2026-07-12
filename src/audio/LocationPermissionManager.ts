@@ -232,6 +232,37 @@ export class LocationPermissionManager {
     return invoke<NativeLocationPayload>('fetch_native_location');
   }
 
+  invalidateSnapshot(): void {
+    this.cachedSnapshot = null;
+    this.cacheTimestamp = 0;
+  }
+
+  async refreshAfterNativeLocation(nativeLocation: NativeLocationPayload): Promise<LocationPermissionSnapshot> {
+    const inferredState =
+      nativeLocation.authorizationStatus === 'authorized' ||
+      nativeLocation.authorizationStatus === 'authorizedAlways' ||
+      nativeLocation.authorizationStatus === 'authorizedWhenInUse'
+        ? 'authorized'
+        : 'unknown';
+
+    this.cachedSnapshot = {
+      state: inferredState,
+      canPrompt: false,
+      browserPermission: 'unsupported',
+      systemLocationEnabled: nativeLocation.systemLocationEnabled,
+      systemPermissionMessage:
+        inferredState === 'authorized'
+          ? '已通过 macOS 原生定位获取到当前位置，定位权限状态已同步。'
+          : '',
+      platform: 'macos',
+      lastCheckedAt: Date.now(),
+    };
+    this.cacheTimestamp = this.cachedSnapshot.lastCheckedAt;
+    this.persistState(this.cachedSnapshot.state);
+
+    return this.getPermissionSnapshot(true);
+  }
+
   /**
    * 打开系统定位隐私设置页面（跨平台）。
    */
