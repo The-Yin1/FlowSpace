@@ -7,6 +7,11 @@ import {
   resolveWeatherAudioKindFromCode,
   resolveWeatherAudioKindFromText,
 } from './weatherAudioConfig';
+import {
+  LocationPermissionManager,
+  type NativeLocationPayload,
+  type LocationPermissionState,
+} from './LocationPermissionManager';
 
 export type WeatherAmbience = 'rain' | 'wind';
 export type AudioSourceType = 'default' | 'weather';
@@ -38,6 +43,8 @@ export type AudioWeatherContext = {
   resolvedWeatherKind: WeatherAudioKind;
   weatherTrackIds: string[];
   geolocationPermission: PermissionState | 'unsupported';
+  permissionState: LocationPermissionState;
+  systemLocationEnabled: boolean;
   coordinateAccuracyMeters: number | null;
   errors: string[];
 };
@@ -100,6 +107,7 @@ export class AudioManager {
   };
   private weatherContext: AudioWeatherContext | null = null;
   private lastWeatherSyncAt = 0;
+  private permissionManager = LocationPermissionManager.getInstance();
 
   setWeatherAmbience(ambience: WeatherAmbience) {
     this.weatherAmbience = ambience;
@@ -107,6 +115,13 @@ export class AudioManager {
 
   getWeatherContext(): AudioWeatherContext | null {
     return this.weatherContext;
+  }
+
+  /**
+   * 获取定位权限管理器的引用，用于 UI 层展示权限状态和引导用户授权。
+   */
+  getPermissionManager(): LocationPermissionManager {
+    return this.permissionManager;
   }
 
   setAudioConfig(config: AudioConfig) {
@@ -138,7 +153,8 @@ export class AudioManager {
     }
 
     if (!providerWeather) {
-      const fallback = this.buildFallbackWeatherContext(locationResult, errors);
+      const permissionSnapshot = await this.permissionManager.getPermissionSnapshot();
+      const fallback = this.buildFallbackWeatherContext(locationResult, errors, permissionSnapshot.state, permissionSnapshot.systemLocationEnabled);
       this.weatherContext = fallback;
       this.weatherAmbience = fallback.ambience;
       this.lastWeatherSyncAt = Date.now();
@@ -160,6 +176,8 @@ export class AudioManager {
         })
       : null;
 
+    const permissionSnapshot = await this.permissionManager.getPermissionSnapshot();
+
     const weatherContext: AudioWeatherContext = {
       ...providerWeather,
       city: reverseGeocode?.city || providerWeather.city,
@@ -170,6 +188,8 @@ export class AudioManager {
       resolvedWeatherKind,
       weatherTrackIds: [...rule.trackIds],
       geolocationPermission: locationResult.permissionState,
+      permissionState: permissionSnapshot.state,
+      systemLocationEnabled: permissionSnapshot.systemLocationEnabled,
       coordinateAccuracyMeters: locationResult.coordinates?.accuracy ?? null,
       errors,
     };
@@ -253,6 +273,31 @@ export class AudioManager {
 
   private async requestCurrentLocation(): Promise<LocationResult> {
     const permissionState = await this.queryGeolocationPermission();
+    const permissionSnapshot = await this.permissionManager.getPermissionSnapshot();
+
+    if (this.isTauriEnvironment() && permissionSnapshot.platform === 'macos') {
+      try {
+        const nativeLocation = await this.withTimeout(
+          this.permissionManager.requestNativeLocation(),
+          GEOLOCATION_TIMEOUT_MS + 8500,
+          'macOS 原生定位请求超时，已降级到天气默认策略。',
+        );
+
+        return {
+          coordinates: this.normalizeNativeLocation(nativeLocation),
+          permissionState,
+          error: null,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          coordinates: null,
+          permissionState,
+          error: message || 'macOS 原生定位获取失败，已降级到天气默认策略。',
+        };
+      }
+    }
+
     if (!('geolocation' in navigator)) {
       return {
         coordinates: null,
@@ -427,7 +472,12 @@ export class AudioManager {
     }
   }
 
-  private buildFallbackWeatherContext(locationResult: LocationResult, errors: string[]): AudioWeatherContext {
+  private buildFallbackWeatherContext(
+    locationResult: LocationResult,
+    errors: string[],
+    permissionState: LocationPermissionState,
+    systemLocationEnabled: boolean,
+  ): AudioWeatherContext {
     const resolvedWeatherKind =
       resolveWeatherAudioKindFromText(this.audioConfig.customWeatherParam) ||
       (this.weatherAmbience === 'rain' ? 'rain' : DEFAULT_WEATHER_AUDIO_KIND);
@@ -450,6 +500,8 @@ export class AudioManager {
       resolvedWeatherKind,
       weatherTrackIds: [...rule.trackIds],
       geolocationPermission: locationResult.permissionState,
+      permissionState,
+      systemLocationEnabled,
       coordinateAccuracyMeters: coordinates?.accuracy ?? null,
       errors,
     };
@@ -532,6 +584,20 @@ export class AudioManager {
     return value === 'rain' || value === 'wind'
       ? value
       : this.resolveAmbienceFromCode(weatherCode, windSpeedMps);
+  }
+
+  private normalizeNativeLocation(payload: NativeLocationPayload): AudioCoordinates {
+    if (!Number.isFinite(payload.latitude) || !Number.isFinite(payload.longitude)) {
+      throw new Error('macOS 原生定位返回的经纬度非法。');
+    }
+
+    return {
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      accuracy: typeof payload.accuracy === 'number' && Number.isFinite(payload.accuracy)
+        ? payload.accuracy
+        : null,
+    };
   }
 
   private composeAddress(city: string, country: string, coordinates: AudioCoordinates | null): string {

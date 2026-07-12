@@ -8,6 +8,10 @@ import {
   type AudioSourceType,
 } from './audio/AudioManager';
 import { VisualManager } from './visual/VisualManager';
+import {
+  type LocationPermissionSnapshot,
+  type LocationPermissionState,
+} from './audio/LocationPermissionManager';
 type StartupWeather = AudioWeatherContext;
 
 type PermissionStatus = {
@@ -101,6 +105,7 @@ let selectedCategoryId: MixerCategoryId = 'nature';
 let masterAudioState: MasterAudioState = 'idle';
 let viewMode: 'standard' | 'mini' = 'standard';
 let isGhostMode = false;
+let locationPermissionSnapshot: LocationPermissionSnapshot | null = null;
 
 const audioMixerData: AudioMixerCategory[] = [
   {
@@ -1284,6 +1289,13 @@ function createUI() {
         gap: 12px;
       }
 
+      .fs-settings-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+
       .fs-button-secondary,
       .fs-button-primary {
         border: none;
@@ -1834,6 +1846,16 @@ function createUI() {
         </section>
 
         <section class="fs-settings-section">
+          <h3 class="fs-settings-section-title">定位权限</h3>
+          <p class="fs-settings-section-hint" id="locationPermissionHint">正在检测定位权限状态...</p>
+          <div class="fs-settings-actions">
+            <button id="requestLocationPermissionBtn" class="fs-permission-button is-primary" type="button">请求定位权限</button>
+            <button id="openLocationSettingsBtn" class="fs-permission-button" type="button" disabled>打开系统定位设置</button>
+            <button id="refreshLocationPermissionBtn" class="fs-permission-button" type="button">刷新权限状态</button>
+          </div>
+        </section>
+
+        <section class="fs-settings-section">
           <h3 class="fs-settings-section-title">外接歌单</h3>
           <p class="fs-settings-section-hint">接入第三方音乐平台歌单，系统会根据平台自动解析分享链接或歌单 ID。</p>
           <div class="fs-field">
@@ -1900,6 +1922,7 @@ function createUI() {
   bindTopBarEvents();
   bindModeControlEvents();
   bindPermissionEvents();
+  bindLocationPermissionEvents();
   bindMixerEvents();
   bindSettingsPanelEvents();
   renderCategoryNav();
@@ -2265,6 +2288,101 @@ function syncPermissionUI() {
   refreshButton.textContent = '刷新状态';
 }
 
+function renderLocationPermissionLabel(state: LocationPermissionState): string {
+  switch (state) {
+    case 'authorized':
+      return '已授权';
+    case 'notDetermined':
+      return '未申请';
+    case 'denied':
+      return '已拒绝';
+    case 'restricted':
+      return '系统限制';
+    case 'systemDisabled':
+      return '系统关闭';
+    case 'unavailable':
+      return '不可用';
+    default:
+      return '未知';
+  }
+}
+
+async function syncLocationPermissionUI() {
+  const hint = document.getElementById('locationPermissionHint');
+  const openSettingsBtn = document.getElementById('openLocationSettingsBtn') as HTMLButtonElement | null;
+  const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+  try {
+    const permManager = audioManager.getPermissionManager();
+    locationPermissionSnapshot = await permManager.getPermissionSnapshot();
+  } catch {
+    locationPermissionSnapshot = null;
+  }
+
+  if (hint) {
+    if (locationPermissionSnapshot) {
+      const stateLabel = renderLocationPermissionLabel(locationPermissionSnapshot.state);
+      const permMsg = locationPermissionSnapshot.systemPermissionMessage
+        ? ` · ${locationPermissionSnapshot.systemPermissionMessage}`
+        : '';
+      hint.textContent = `定位权限状态：${stateLabel}（${locationPermissionSnapshot.platform}）${permMsg}`;
+    } else {
+      hint.textContent = '定位权限状态：检测中...';
+    }
+  }
+
+  if (openSettingsBtn && isTauriEnv) {
+    openSettingsBtn.disabled = false;
+  }
+}
+
+function bindLocationPermissionEvents() {
+  document.getElementById('requestLocationPermissionBtn')?.addEventListener('click', async () => {
+    try {
+      const permManager = audioManager.getPermissionManager();
+      locationPermissionSnapshot = await permManager.requestPermission();
+      const label = locationPermissionSnapshot
+        ? renderLocationPermissionLabel(locationPermissionSnapshot.state)
+        : '未知';
+      console.log('📍 定位权限请求完成:', locationPermissionSnapshot);
+      alert(`定位权限处理完成，当前状态：${label}`);
+    } catch (error) {
+      console.error('❌ 请求定位权限失败:', error);
+      alert('请求定位权限失败，请前往系统定位设置检查授权状态。');
+    } finally {
+      syncLocationPermissionUI();
+      syncSettingsUI();
+    }
+  });
+
+  document.getElementById('openLocationSettingsBtn')?.addEventListener('click', async () => {
+    try {
+      const permManager = audioManager.getPermissionManager();
+      await permManager.openSystemLocationSettings();
+    } catch (error) {
+      console.error('❌ 打开定位设置失败:', error);
+    }
+  });
+
+  document.getElementById('refreshLocationPermissionBtn')?.addEventListener('click', async () => {
+    try {
+      const permManager = audioManager.getPermissionManager();
+      locationPermissionSnapshot = await permManager.getPermissionSnapshot(true);
+      syncLocationPermissionUI();
+      syncSettingsUI();
+    } catch (error) {
+      console.error('❌ 刷新定位权限失败:', error);
+    }
+  });
+
+  const permManager = audioManager.getPermissionManager();
+  permManager.listenForPermissionChanges((snapshot: LocationPermissionSnapshot) => {
+    locationPermissionSnapshot = snapshot;
+    syncLocationPermissionUI();
+    syncSettingsUI();
+  });
+}
+
 function syncSettingsUI() {
   const defaultRadio = document.querySelector<HTMLInputElement>('input[name="audioSourceType"][value="default"]');
   const weatherRadio = document.querySelector<HTMLInputElement>('input[name="audioSourceType"][value="weather"]');
@@ -2300,11 +2418,14 @@ function syncSettingsUI() {
       };
       const resolvedLabel = resolvedLabelMap[startupWeather.resolvedWeatherKind];
       const errorSuffix = startupWeather.errors.length ? ` · 降级提示：${startupWeather.errors[0]}` : '';
-      weatherPanelHint.textContent = `当前定位：${startupWeather.formattedAddress} · 天气映射：${resolvedLabel}${errorSuffix}`;
+      const permLabel = renderLocationPermissionLabel(startupWeather.permissionState);
+      weatherPanelHint.textContent = `当前定位：${startupWeather.formattedAddress} · 天气映射：${resolvedLabel} · 权限：${permLabel}${errorSuffix}`;
     } else {
       weatherPanelHint.textContent = '当前定位未加载，留空时将继续使用系统默认天气画像。';
     }
   }
+
+  syncLocationPermissionUI();
 
   if (playlistPlatformSelect) {
     playlistPlatformSelect.value = playlistConfig.platform;

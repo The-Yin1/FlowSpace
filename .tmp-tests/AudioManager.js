@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { DEFAULT_WEATHER_AUDIO_KIND, WEATHER_AUDIO_RULES, WIND_AUDIO_THRESHOLD_MPS, resolveWeatherAudioKindFromCode, resolveWeatherAudioKindFromText, } from './weatherAudioConfig';
+import { LocationPermissionManager, } from './LocationPermissionManager';
 const GEOLOCATION_TIMEOUT_MS = 3500;
 const WEATHER_TIMEOUT_MS = 5000;
 const REVERSE_GEOCODE_TIMEOUT_MS = 3500;
@@ -17,12 +18,19 @@ export class AudioManager {
         };
         this.weatherContext = null;
         this.lastWeatherSyncAt = 0;
+        this.permissionManager = LocationPermissionManager.getInstance();
     }
     setWeatherAmbience(ambience) {
         this.weatherAmbience = ambience;
     }
     getWeatherContext() {
         return this.weatherContext;
+    }
+    /**
+     * 获取定位权限管理器的引用，用于 UI 层展示权限状态和引导用户授权。
+     */
+    getPermissionManager() {
+        return this.permissionManager;
     }
     setAudioConfig(config) {
         const sourceType = config.sourceType === 'default' ? 'default' : 'weather';
@@ -50,7 +58,8 @@ export class AudioManager {
             errors.push(message);
         }
         if (!providerWeather) {
-            const fallback = this.buildFallbackWeatherContext(locationResult, errors);
+            const permissionSnapshot = await this.permissionManager.getPermissionSnapshot();
+            const fallback = this.buildFallbackWeatherContext(locationResult, errors, permissionSnapshot.state, permissionSnapshot.systemLocationEnabled);
             this.weatherContext = fallback;
             this.weatherAmbience = fallback.ambience;
             this.lastWeatherSyncAt = Date.now();
@@ -65,6 +74,7 @@ export class AudioManager {
                 return null;
             })
             : null;
+        const permissionSnapshot = await this.permissionManager.getPermissionSnapshot();
         const weatherContext = {
             ...providerWeather,
             city: reverseGeocode?.city || providerWeather.city,
@@ -74,6 +84,8 @@ export class AudioManager {
             resolvedWeatherKind,
             weatherTrackIds: [...rule.trackIds],
             geolocationPermission: locationResult.permissionState,
+            permissionState: permissionSnapshot.state,
+            systemLocationEnabled: permissionSnapshot.systemLocationEnabled,
             coordinateAccuracyMeters: locationResult.coordinates?.accuracy ?? null,
             errors,
         };
@@ -291,7 +303,7 @@ export class AudioManager {
             clearTimeout(timeoutId);
         }
     }
-    buildFallbackWeatherContext(locationResult, errors) {
+    buildFallbackWeatherContext(locationResult, errors, permissionState, systemLocationEnabled) {
         const resolvedWeatherKind = resolveWeatherAudioKindFromText(this.audioConfig.customWeatherParam) ||
             (this.weatherAmbience === 'rain' ? 'rain' : DEFAULT_WEATHER_AUDIO_KIND);
         const rule = WEATHER_AUDIO_RULES[resolvedWeatherKind];
@@ -312,6 +324,8 @@ export class AudioManager {
             resolvedWeatherKind,
             weatherTrackIds: [...rule.trackIds],
             geolocationPermission: locationResult.permissionState,
+            permissionState,
+            systemLocationEnabled,
             coordinateAccuracyMeters: coordinates?.accuracy ?? null,
             errors,
         };

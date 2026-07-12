@@ -87,6 +87,16 @@ test('天气链路成功时返回定位、地址和匹配音轨', async () => {
   });
 
   mockIPC(async (cmd, payload) => {
+    if (cmd === 'check_location_permission') {
+      return {
+        platform: 'macos',
+        systemLocationEnabled: true,
+        appLocationAuthorized: true,
+        authorizationStatus: 'authorized',
+        canPrompt: false,
+        message: 'macOS 定位权限已授权。',
+      };
+    }
     assert.equal(cmd, 'fetch_startup_weather');
     assert.equal(payload.latitude, 31.2304);
     assert.equal(payload.longitude, 121.4737);
@@ -194,19 +204,31 @@ test('地址反解失败不会阻断天气白噪音匹配', async () => {
     }),
   });
 
-  mockIPC(async () => ({
-    latitude: 47.6062,
-    longitude: -122.3321,
-    city: 'Current Location',
-    country: 'Device Geolocation',
-    temperatureC: 8,
-    weatherCode: 95,
-    isDay: false,
-    windSpeedMps: 11,
-    ambience: 'rain',
-    source: 'open-meteo',
-    locationSource: 'device-geolocation',
-  }));
+  mockIPC(async (cmd) => {
+    if (cmd === 'check_location_permission') {
+      return {
+        platform: 'macos',
+        systemLocationEnabled: true,
+        appLocationAuthorized: true,
+        authorizationStatus: 'authorized',
+        canPrompt: false,
+        message: 'macOS 定位权限已授权。',
+      };
+    }
+    return {
+      latitude: 47.6062,
+      longitude: -122.3321,
+      city: 'Current Location',
+      country: 'Device Geolocation',
+      temperatureC: 8,
+      weatherCode: 95,
+      isDay: false,
+      windSpeedMps: 11,
+      ambience: 'rain',
+      source: 'open-meteo',
+      locationSource: 'device-geolocation',
+    };
+  });
 
   globalThis.fetch = async () => {
     throw new Error('reverse geocode unavailable');

@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use tauri::{command, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use std::thread::sleep;
 use device_query::{DeviceQuery, DeviceState, Keycode};
@@ -335,6 +338,8 @@ fn open_privacy_settings(target: String) -> Result<(), String> {
         let url = match target.as_str() {
             "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
             "input-monitoring" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+            "location" => "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
+            "location-app" => "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
             _ => return Err(format!("不支持的权限设置目标: {target}")),
         };
 
@@ -343,17 +348,294 @@ fn open_privacy_settings(target: String) -> Result<(), String> {
             .status()
             .map_err(|err| format!("打开系统设置失败: {err}"))?;
 
-        if status.success() {
+        return if status.success() {
             Ok(())
         } else {
             Err(format!("系统设置命令退出异常: {status}"))
-        }
+        };
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = target;
-        Err("当前平台不支持打开 macOS 隐私设置。".to_string())
+        if target != "location" && target != "location-app" {
+            return Err(format!("当前平台仅支持 location 权限设置: {target}"));
+        }
+        // Windows 10/11 隐私设置 → 位置
+        let status = Command::new("cmd")
+            .args(["/C", "start", "ms-settings:privacy-location"])
+            .status()
+            .map_err(|err| format!("打开 Windows 位置隐私设置失败: {err}"))?;
+
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(format!("系统设置命令退出异常: {status}"))
+        };
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        if target != "location" && target != "location-app" {
+            return Err(format!("当前平台仅支持 location 权限设置: {target}"));
+        }
+        // Linux: try GNOME settings or KDE settings
+        let commands = [
+            vec!["gnome-control-center", "privacy"],
+            vec!["systemsettings"],
+            vec!["xdg-open", "settings://location"],
+        ];
+        for args in &commands {
+            if let Ok(status) = Command::new(args[0]).args(&args[1..]).status() {
+                if status.success() {
+                    return Ok(());
+                }
+            }
+        }
+        return Err("无法打开当前 Linux 桌面的隐私设置，请手动进入系统设置查找位置权限选项。".to_string());
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocationPermissionStatus {
+    platform: String,
+    system_location_enabled: bool,
+    app_location_authorized: Option<bool>,
+    authorization_status: String,
+    #[serde(deserialize_with = "deserialize_bool_like")]
+    can_prompt: bool,
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeLocationBridgeResponse {
+    ok: bool,
+    error: Option<String>,
+    system_location_enabled: bool,
+    authorization_status: String,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    accuracy: Option<f64>,
+    timestamp_ms: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeLocationPayload {
+    latitude: f64,
+    longitude: f64,
+    accuracy: Option<f64>,
+    timestamp_ms: f64,
+    authorization_status: String,
+    system_location_enabled: bool,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn flowspace_location_status_json() -> *mut c_char;
+    fn flowspace_request_location_permission_json() -> *mut c_char;
+    fn flowspace_request_current_location_json() -> *mut c_char;
+    fn flowspace_location_free_string(value: *mut c_char);
+}
+
+#[command]
+fn check_location_permission(app: tauri::AppHandle) -> LocationPermissionStatus {
+    #[cfg(target_os = "macos")]
+    {
+        return check_location_permission_macos(app);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return check_location_permission_windows();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        return check_location_permission_linux();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn check_location_permission_macos(app: tauri::AppHandle) -> LocationPermissionStatus {
+    run_macos_location_on_main_thread(app, check_location_permission_macos_impl)
+        .unwrap_or_else(|error| build_location_permission_error_status(error))
+}
+
+#[cfg(target_os = "macos")]
+#[command]
+fn request_location_permission(app: tauri::AppHandle) -> Result<LocationPermissionStatus, String> {
+    run_macos_location_on_main_thread(app, request_location_permission_macos_impl)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[command]
+fn request_location_permission(app: tauri::AppHandle) -> Result<LocationPermissionStatus, String> {
+    Ok(check_location_permission(app))
+}
+
+#[cfg(target_os = "macos")]
+#[command]
+fn fetch_native_location(app: tauri::AppHandle) -> Result<NativeLocationPayload, String> {
+    run_macos_location_on_main_thread(app, fetch_native_location_macos_impl)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[command]
+fn fetch_native_location(_app: tauri::AppHandle) -> Result<NativeLocationPayload, String> {
+    Err("当前平台未启用 macOS 原生定位桥接。".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_location_on_main_thread<T, F>(app: tauri::AppHandle, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = sender.send(task());
+    })
+    .map_err(|error| format!("切换到 macOS 主线程执行定位逻辑失败: {error}"))?;
+
+    receiver
+        .recv()
+        .map_err(|error| format!("接收 macOS 主线程定位结果失败: {error}"))?
+}
+
+#[cfg(target_os = "macos")]
+fn build_location_permission_error_status(message: String) -> LocationPermissionStatus {
+    eprintln!("❌ macOS 定位权限状态检测失败: {message}");
+    LocationPermissionStatus {
+        platform: "macos".to_string(),
+        system_location_enabled: false,
+        app_location_authorized: None,
+        authorization_status: "unknown".to_string(),
+        can_prompt: false,
+        message,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn check_location_permission_macos_impl() -> Result<LocationPermissionStatus, String> {
+    call_macos_location_bridge(flowspace_location_status_json)
+}
+
+#[cfg(target_os = "macos")]
+fn request_location_permission_macos_impl() -> Result<LocationPermissionStatus, String> {
+    call_macos_location_bridge(flowspace_request_location_permission_json)
+}
+
+#[cfg(target_os = "macos")]
+fn fetch_native_location_macos_impl() -> Result<NativeLocationPayload, String> {
+    let response: NativeLocationBridgeResponse =
+        call_macos_location_bridge(flowspace_request_current_location_json)?;
+
+    if !response.ok {
+        return Err(response
+            .error
+            .unwrap_or_else(|| "macOS 原生定位返回失败。".to_string()));
+    }
+
+    Ok(NativeLocationPayload {
+        latitude: response
+            .latitude
+            .ok_or_else(|| "macOS 原生定位缺少 latitude 字段。".to_string())?,
+        longitude: response
+            .longitude
+            .ok_or_else(|| "macOS 原生定位缺少 longitude 字段。".to_string())?,
+        accuracy: response.accuracy,
+        timestamp_ms: response
+            .timestamp_ms
+            .ok_or_else(|| "macOS 原生定位缺少 timestampMs 字段。".to_string())?,
+        authorization_status: response.authorization_status,
+        system_location_enabled: response.system_location_enabled,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn call_macos_location_bridge<T>(bridge_fn: unsafe extern "C" fn() -> *mut c_char) -> Result<T, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let raw_ptr = unsafe { bridge_fn() };
+    if raw_ptr.is_null() {
+        return Err("macOS 原生定位桥接返回了空指针。".to_string());
+    }
+
+    let json = unsafe { CStr::from_ptr(raw_ptr) }
+        .to_string_lossy()
+        .into_owned();
+
+    unsafe {
+        flowspace_location_free_string(raw_ptr);
+    }
+
+    serde_json::from_str(&json).map_err(|error| format!("解析 macOS 原生定位桥接数据失败: {error}; payload={json}"))
+}
+
+fn deserialize_bool_like<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Bool(boolean) => Ok(boolean),
+        serde_json::Value::Number(number) => Ok(number.as_i64().unwrap_or_default() != 0),
+        _ => Err(serde::de::Error::custom("expected bool or numeric bool")),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn check_location_permission_windows() -> LocationPermissionStatus {
+    // On Windows, location permission is managed through the system privacy settings.
+    // The WebView2/Edge will handle the actual prompt when navigator.geolocation is called.
+    // We provide a best-effort check via registry.
+    use std::process::Command as StdCommand;
+
+    let system_enabled = StdCommand::new("reg")
+        .args(["query", r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location", "/v", "Value"])
+        .output()
+        .map(|output| {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            !stdout.contains("Deny")
+        })
+        .unwrap_or(true);
+
+    LocationPermissionStatus {
+        platform: "windows".to_string(),
+        system_location_enabled: system_enabled,
+        app_location_authorized: None,
+        authorization_status: if system_enabled { "promptable".to_string() } else { "denied".to_string() },
+        can_prompt: system_enabled,
+        message: if system_enabled {
+            "Windows 定位服务已开启，应用调用定位时将触发系统提示。".to_string()
+        } else {
+            "Windows 定位服务被禁用，请前往 设置 → 隐私与安全性 → 位置 中开启。".to_string()
+        },
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn check_location_permission_linux() -> LocationPermissionStatus {
+    use std::process::Command as StdCommand;
+
+    let geoclue_available = StdCommand::new("which")
+        .arg("geoclue2")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+
+    LocationPermissionStatus {
+        platform: "linux".to_string(),
+        system_location_enabled: geoclue_available,
+        app_location_authorized: None,
+        authorization_status: if geoclue_available { "promptable".to_string() } else { "unavailable".to_string() },
+        can_prompt: geoclue_available,
+        message: if geoclue_available {
+            "GeoClue2 定位服务已就绪，应用将尝试通过 D-Bus 获取位置。".to_string()
+        } else {
+            "GeoClue2 定位服务未安装。请通过包管理器安装 geoclue2 以启用定位功能。".to_string()
+        },
     }
 }
 
@@ -642,6 +924,9 @@ fn main() {
             get_permission_status,
             request_accessibility_permission,
             open_privacy_settings,
+            check_location_permission,
+            request_location_permission,
+            fetch_native_location,
             set_mini_mode,
             set_window_click_through
         ])
