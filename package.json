@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:audio-weather": "rm -rf .tmp-tests && npx tsc --outDir .tmp-tests --module ESNext --target ES2020 --moduleResolution bundler --lib ES2020,DOM src/audio/AudioManager.ts src/audio/weatherAudioConfig.ts && node --experimental-specifier-resolution=node --test tests/audioManager.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

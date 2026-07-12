@@ -4,24 +4,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   AudioManager,
   type AudioConfig,
+  type AudioWeatherContext,
   type AudioSourceType,
-  type WeatherAmbience,
 } from './audio/AudioManager';
 import { VisualManager } from './visual/VisualManager';
-
-type StartupWeather = {
-  latitude: number;
-  longitude: number;
-  city: string;
-  country: string;
-  temperatureC: number;
-  weatherCode: number;
-  isDay: boolean;
-  windSpeedMps: number;
-  ambience: WeatherAmbience;
-  source: string;
-  locationSource: string;
-};
+type StartupWeather = AudioWeatherContext;
 
 type PermissionStatus = {
   platform: string;
@@ -2302,8 +2289,18 @@ function syncSettingsUI() {
 
   if (weatherPanelHint) {
     if (startupWeather) {
-      const resolvedLabel = startupWeather.ambience === 'rain' ? '雨声' : '风声';
-      weatherPanelHint.textContent = `当前定位：${startupWeather.city}, ${startupWeather.country} · ${resolvedLabel} · 可留空以继续自动匹配。`;
+      const resolvedLabelMap: Record<StartupWeather['resolvedWeatherKind'], string> = {
+        clear: '晴朗',
+        cloudy: '多云',
+        fog: '雾天',
+        wind: '风天',
+        rain: '雨天',
+        snow: '雪天',
+        storm: '暴风雨',
+      };
+      const resolvedLabel = resolvedLabelMap[startupWeather.resolvedWeatherKind];
+      const errorSuffix = startupWeather.errors.length ? ` · 降级提示：${startupWeather.errors[0]}` : '';
+      weatherPanelHint.textContent = `当前定位：${startupWeather.formattedAddress} · 天气映射：${resolvedLabel}${errorSuffix}`;
     } else {
       weatherPanelHint.textContent = '当前定位未加载，留空时将继续使用系统默认天气画像。';
     }
@@ -2512,6 +2509,13 @@ function pauseActiveTracks() {
 
 async function enableMasterAudio() {
   audioManager.setAudioConfig(audioConfig);
+
+  if (audioConfig.sourceType === 'weather') {
+    startupWeather = await audioManager.loadWeatherContext({
+      forceRefresh: masterAudioState === 'idle',
+    });
+  }
+
   if (masterAudioState === 'idle') {
     await audioManager.start();
   } else {
@@ -2521,7 +2525,9 @@ async function enableMasterAudio() {
   masterAudioState = 'running';
 
   // 自动激活定位天气匹配的自然环境轨道（仅针对有 mp3 源的轨道，无源轨道自动跳过不报错）
-  const weatherTrackIds = audioManager.getWeatherTrackIds();
+  const weatherTrackIds = audioManager.getWeatherTrackIds(
+    mixerTracks.filter((track) => track.src).map((track) => track.id),
+  );
   for (const trackId of weatherTrackIds) {
     const track = mixerTracks.find((t) => t.id === trackId);
     if (track && track.src) {
@@ -2968,49 +2974,17 @@ async function loadPermissionStatus(isTauri: boolean) {
   syncPermissionUI();
 }
 
-async function loadStartupWeather(isTauri: boolean) {
-  if (!isTauri) {
-    startupWeather = null;
-    audioManager.setWeatherAmbience('wind');
-    syncSettingsUI();
-    return;
-  }
-
+async function loadStartupWeather() {
   try {
-    const coordinates = await getUserCoordinates();
-    const weather = await invoke<StartupWeather>('fetch_startup_weather', coordinates ?? {});
+    const weather = await audioManager.loadWeatherContext({ forceRefresh: true });
     startupWeather = weather;
-    audioManager.setWeatherAmbience(weather.ambience);
     syncSettingsUI();
   } catch (error) {
     startupWeather = null;
-    console.error('❌ Startup weather fetch failed, fallback to wind ambience:', error);
+    console.error('❌ Startup weather fetch failed, fallback to weather defaults:', error);
     audioManager.setWeatherAmbience('wind');
     syncSettingsUI();
   }
-}
-
-async function getUserCoordinates(): Promise<{ latitude: number; longitude: number } | null> {
-  if (!('geolocation' in navigator)) {
-    return null;
-  }
-
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-      },
-      () => resolve(null),
-      {
-        enableHighAccuracy: false,
-        timeout: 3000,
-        maximumAge: 30 * 60 * 1000,
-      },
-    );
-  });
 }
 
 function updateEnergy(energy: number) {
@@ -3047,7 +3021,7 @@ async function main() {
 
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
   await loadPermissionStatus(Boolean(isTauri));
-  await loadStartupWeather(Boolean(isTauri));
+  await loadStartupWeather();
   updateEnergy(currentEnergy);
 
   if (isTauri) {
