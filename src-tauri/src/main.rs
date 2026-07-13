@@ -13,6 +13,8 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use std::panic;
 
+mod location;
+
 const MAX_WPM: f64 = 120.0;
 const WINDOW_SECONDS: u64 = 5;
 const TICK_MS: u64 = 100;
@@ -35,14 +37,6 @@ struct OpenMeteoCurrent {
     weather_code: i32,
     is_day: i32,
     wind_speed_10m: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct IpApiResponse {
-    city: Option<String>,
-    country_name: Option<String>,
-    latitude: Option<f64>,
-    longitude: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -294,6 +288,99 @@ fn get_permission_status_internal(prompt_if_needed: bool) -> PermissionStatus {
     macos_permissions::get_permission_status(prompt_if_needed)
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocationPermissionStatus {
+    platform: String,
+    system_location_enabled: bool,
+    app_location_authorized: Option<bool>,
+    authorization_status: String,
+    #[serde(deserialize_with = "deserialize_bool_like")]
+    can_prompt: bool,
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeLocationBridgeResponse {
+    ok: bool,
+    error: Option<String>,
+    system_location_enabled: bool,
+    authorization_status: String,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    accuracy: Option<f64>,
+    timestamp_ms: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeLocationPayload {
+    latitude: f64,
+    longitude: f64,
+    accuracy: Option<f64>,
+    timestamp_ms: f64,
+    authorization_status: String,
+    system_location_enabled: bool,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn flowspace_location_status_json() -> *mut c_char;
+    fn flowspace_request_location_permission_json() -> *mut c_char;
+    fn flowspace_request_current_location_json() -> *mut c_char;
+    fn flowspace_location_free_string(value: *mut c_char);
+}
+
+/// 双阶段定位策略：
+///   Stage 1 – 原生 GPS（仅 release macOS 构建启用；debug 模式自动跳过）
+///   Stage 2 – IP 地理定位降级
+#[allow(unused_variables)]
+async fn resolve_location(app: tauri::AppHandle) -> Result<location::ResolvedLocation, String> {
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
+    {
+        eprintln!("📍 尝试 macOS 原生 GPS 定位 ...");
+        match resolve_location_via_native_gps(app).await {
+            Ok(loc) => {
+                eprintln!("✅ 原生 GPS 定位成功。");
+                return Ok(loc);
+            }
+            Err(err) => {
+                eprintln!("⚠️  原生 GPS 定位失败，降级为 IP 定位: {err}");
+            }
+        }
+    }
+
+    if cfg!(debug_assertions) {
+        eprintln!("📍 开发模式，跳过原生 GPS，直接使用 IP 定位。");
+    }
+
+    location::resolve_location_from_ip().await
+}
+
+/// macOS 原生 GPS：通过 CoreLocation bridge + 主线程 dispatch 获取位置。
+#[cfg(target_os = "macos")]
+async fn resolve_location_via_native_gps(app: tauri::AppHandle) -> Result<location::ResolvedLocation, String> {
+    let (sender, receiver) = mpsc::channel();
+
+    app.run_on_main_thread(move || {
+        let result = fetch_native_location_macos_impl()
+            .map(|payload| location::ResolvedLocation {
+                latitude: payload.latitude,
+                longitude: payload.longitude,
+                city: "Current Location".to_string(),
+                country: "Device Geolocation".to_string(),
+                location_source: "native-gps".to_string(),
+            });
+        let _ = sender.send(result);
+    })
+    .map_err(|e| format!("切换到主线程失败: {e}"))?;
+
+    receiver
+        .recv()
+        .map_err(|e| format!("接收主线程结果失败: {e}"))?
+}
+
 #[command]
 fn record_key_stroke(state: tauri::State<Arc<Mutex<FlowState>>>) {
     state.lock().record_stroke();
@@ -393,50 +480,6 @@ fn open_privacy_settings(target: String) -> Result<(), String> {
         }
         return Err("无法打开当前 Linux 桌面的隐私设置，请手动进入系统设置查找位置权限选项。".to_string());
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LocationPermissionStatus {
-    platform: String,
-    system_location_enabled: bool,
-    app_location_authorized: Option<bool>,
-    authorization_status: String,
-    #[serde(deserialize_with = "deserialize_bool_like")]
-    can_prompt: bool,
-    message: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NativeLocationBridgeResponse {
-    ok: bool,
-    error: Option<String>,
-    system_location_enabled: bool,
-    authorization_status: String,
-    latitude: Option<f64>,
-    longitude: Option<f64>,
-    accuracy: Option<f64>,
-    timestamp_ms: Option<f64>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NativeLocationPayload {
-    latitude: f64,
-    longitude: f64,
-    accuracy: Option<f64>,
-    timestamp_ms: f64,
-    authorization_status: String,
-    system_location_enabled: bool,
-}
-
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    fn flowspace_location_status_json() -> *mut c_char;
-    fn flowspace_request_location_permission_json() -> *mut c_char;
-    fn flowspace_request_current_location_json() -> *mut c_char;
-    fn flowspace_location_free_string(value: *mut c_char);
 }
 
 #[command]
@@ -641,18 +684,28 @@ fn check_location_permission_linux() -> LocationPermissionStatus {
 
 #[command]
 async fn fetch_startup_weather(
+    app: tauri::AppHandle,
     latitude: Option<f64>,
     longitude: Option<f64>,
 ) -> Result<StartupWeather, String> {
     let (latitude, longitude, city, country, location_source) = match (latitude, longitude) {
-        (Some(latitude), Some(longitude)) => (
-            latitude,
-            longitude,
+        (Some(lat), Some(lon)) => (
+            lat,
+            lon,
             "Current Location".to_string(),
             "Device Geolocation".to_string(),
             "device-geolocation".to_string(),
         ),
-        _ => resolve_location_from_ip().await?,
+        _ => {
+            let resolved = resolve_location(app).await?;
+            (
+                resolved.latitude,
+                resolved.longitude,
+                resolved.city,
+                resolved.country,
+                resolved.location_source,
+            )
+        }
     };
 
     let client = reqwest::Client::new();
@@ -702,46 +755,6 @@ async fn fetch_startup_weather(
         source: "open-meteo".to_string(),
         location_source,
     })
-}
-
-async fn resolve_location_from_ip() -> Result<(f64, f64, String, String, String), String> {
-    let client = reqwest::Client::new();
-    let response = client
-        .get("https://ipapi.co/json/")
-        .send()
-        .await
-        .map_err(|err| format!("IP 定位请求失败: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("IP 定位接口返回异常: {err}"))?;
-
-    let location = response
-        .json::<IpApiResponse>()
-        .await
-        .map_err(|err| format!("IP 定位数据解析失败: {err}"))?;
-
-    let latitude = location
-        .latitude
-        .ok_or_else(|| "IP 定位缺少 latitude".to_string())?;
-    let longitude = location
-        .longitude
-        .ok_or_else(|| "IP 定位缺少 longitude".to_string())?;
-    let city = location.city.unwrap_or_else(|| "Unknown City".to_string());
-    let country = location
-        .country_name
-        .unwrap_or_else(|| "Unknown Country".to_string());
-
-    println!(
-        "📍 已通过 IP 自动定位城市: {} / {} ({:.4}, {:.4})",
-        city, country, latitude, longitude
-    );
-
-    Ok((
-        latitude,
-        longitude,
-        city,
-        country,
-        "ip-geolocation".to_string(),
-    ))
 }
 
 #[command]

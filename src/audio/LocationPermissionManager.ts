@@ -238,16 +238,22 @@ export class LocationPermissionManager {
   }
 
   async refreshAfterNativeLocation(nativeLocation: NativeLocationPayload): Promise<LocationPermissionSnapshot> {
-    const inferredState =
+    const inferredState: LocationPermissionState =
       nativeLocation.authorizationStatus === 'authorized' ||
       nativeLocation.authorizationStatus === 'authorizedAlways' ||
       nativeLocation.authorizationStatus === 'authorizedWhenInUse'
         ? 'authorized'
-        : 'unknown';
+        : nativeLocation.authorizationStatus === 'denied'
+          ? 'denied'
+          : nativeLocation.authorizationStatus === 'restricted'
+            ? 'restricted'
+            : nativeLocation.authorizationStatus === 'notDetermined'
+              ? 'notDetermined'
+              : 'unknown';
 
     this.cachedSnapshot = {
       state: inferredState,
-      canPrompt: false,
+      canPrompt: inferredState === 'notDetermined',
       browserPermission: 'unsupported',
       systemLocationEnabled: nativeLocation.systemLocationEnabled,
       systemPermissionMessage:
@@ -260,7 +266,7 @@ export class LocationPermissionManager {
     this.cacheTimestamp = this.cachedSnapshot.lastCheckedAt;
     this.persistState(this.cachedSnapshot.state);
 
-    return this.getPermissionSnapshot(true);
+    return this.cachedSnapshot;
   }
 
   /**
