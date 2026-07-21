@@ -71,7 +71,7 @@ type TrackRuntimeState = {
   element: HTMLAudioElement | null;
 };
 
-type MasterAudioState = 'idle' | 'running' | 'paused';
+type WeatherAudioState = 'idle' | 'running' | 'paused';
 type WindowResizeDirection =
   | 'North'
   | 'South'
@@ -101,9 +101,12 @@ let playlistEmbedState: PlaylistEmbedState = {
   error: '',
 };
 let selectedCategoryId: MixerCategoryId = 'nature';
-let masterAudioState: MasterAudioState = 'idle';
+let weatherAudioState: WeatherAudioState = 'idle';
 let viewMode: 'standard' | 'mini' = 'standard';
 let isGhostMode = false;
+let activeWeatherAudioSources: string[] = [];
+
+const weatherAudioElements = new Map<string, HTMLAudioElement>();
 
 const audioMixerData: AudioMixerCategory[] = [
   {
@@ -130,14 +133,14 @@ const audioMixerData: AudioMixerCategory[] = [
     name: '雨声',
     icon: 'rain-icon',
     tracks: [
-      { id: 'light_rain', name: '小雨', icon: 'rain-1', src: '' },
-      { id: 'heavy_rain', name: '大雨', icon: 'rain-2', src: '' },
-      { id: 'window_rain', name: '窗户雨声', icon: 'window', src: '' },
-      { id: 'umbrella_rain', name: '雨伞雨声', icon: 'umbrella', src: '' },
-      { id: 'car_rain', name: '车顶雨声', icon: 'car', src: '' },
-      { id: 'leaf_rain', name: '树叶雨声', icon: 'leaf-rain', src: '' },
-      { id: 'tent_rain', name: '帐篷雨声', icon: 'tent', src: '' },
-      { id: 'thunder', name: '雷声', icon: 'thunder', src: '' },
+      { id: 'light_rain', name: '小雨', icon: 'rain-1', src: '/rain/light-rain.mp3' },
+      { id: 'heavy_rain', name: '大雨', icon: 'rain-2', src: '/rain/heavy-rain.mp3' },
+      { id: 'window_rain', name: '窗户雨声', icon: 'window', src: '/rain/rain-on-window.mp3' },
+      { id: 'umbrella_rain', name: '雨伞雨声', icon: 'umbrella', src: '/rain/rain-on-umbrella.mp3' },
+      { id: 'car_rain', name: '车顶雨声', icon: 'car', src: '/rain/rain-on-car-roof.mp3' },
+      { id: 'leaf_rain', name: '树叶雨声', icon: 'leaf-rain', src: '/rain/rain-on-leaves.mp3' },
+      { id: 'tent_rain', name: '帐篷雨声', icon: 'tent', src: '/rain/rain-on-tent.mp3' },
+      { id: 'thunder', name: '雷声', icon: 'thunder', src: '/rain/thunder.mp3' },
     ],
   },
   {
@@ -145,18 +148,18 @@ const audioMixerData: AudioMixerCategory[] = [
     name: '动物',
     icon: 'animal-icon',
     tracks: [
-      { id: 'birds', name: '鸟鸣', icon: 'bird', src: '' },
-      { id: 'beehive', name: '蜂巢', icon: 'bee', src: '' },
-      { id: 'cat_purr', name: '猫咪呼噜', icon: 'cat', src: '' },
-      { id: 'rooster', name: '鸡鸣', icon: 'rooster', src: '' },
-      { id: 'cow', name: '牛叫', icon: 'cow', src: '' },
-      { id: 'cricket', name: '蟋蟀', icon: 'cricket', src: '' },
-      { id: 'crow', name: '乌鸦', icon: 'crow', src: '' },
-      { id: 'dog', name: '狗叫', icon: 'dog', src: '' },
-      { id: 'frog', name: '青蛙', icon: 'frog', src: '' },
-      { id: 'horse_gallop', name: '马蹄声', icon: 'horse', src: '' },
-      { id: 'owl', name: '猫头鹰', icon: 'owl', src: '' },
-      { id: 'seagull', name: '海鸥', icon: 'seagull', src: '' },
+      { id: 'birds', name: '鸟鸣', icon: 'bird', src: '/animals/birds.mp3' },
+      { id: 'beehive', name: '蜂巢', icon: 'bee', src: '/animals/beehive.mp3' },
+      { id: 'cat_purr', name: '猫咪呼噜', icon: 'cat', src: '/animals/cat_purring.mp3' },
+      { id: 'rooster', name: '鸡鸣', icon: 'rooster', src: '/animals/chickens.mp3' },
+      { id: 'cow', name: '牛叫', icon: 'cow', src: '/animals/cows.mp3' },
+      { id: 'cricket', name: '蟋蟀', icon: 'cricket', src: '/animals/crickets.mp3' },
+      { id: 'crow', name: '乌鸦', icon: 'crow', src: '/animals/crows.mp3' },
+      { id: 'dog', name: '狗叫', icon: 'dog', src: '/animals/dog-barking.mp3' },
+      { id: 'frog', name: '青蛙', icon: 'frog', src: '/animals/frog.mp3' },
+      { id: 'horse_gallop', name: '马蹄声', icon: 'horse', src: '/animals/horse_gallop.m3' },
+      { id: 'owl', name: '猫头鹰', icon: 'owl', src: '/animals/owl.mp3' },
+      { id: 'seagull', name: '海鸥', icon: 'seagull', src: '/animals/seagulls.mp3' },
     ],
   },
 ];
@@ -183,6 +186,90 @@ function getTrackRuntimeState(trackId: string): TrackRuntimeState {
     throw new Error(`Unknown track id: ${trackId}`);
   }
   return state;
+}
+
+function getWeatherAudioElementVolume(trackCount = activeWeatherAudioSources.length): number {
+  const normalizedEnergy = Math.max(0, Math.min(1, currentEnergy));
+  const baseVolume = trackCount > 1 ? 0.18 : 0.26;
+  return Math.max(0.12, Math.min(0.42, baseVolume + normalizedEnergy * 0.08));
+}
+
+function ensureWeatherAudioElement(src: string): HTMLAudioElement {
+  let element = weatherAudioElements.get(src);
+  if (!element) {
+    element = new Audio(src);
+    element.loop = true;
+    element.preload = 'auto';
+    weatherAudioElements.set(src, element);
+  }
+
+  element.volume = getWeatherAudioElementVolume();
+  return element;
+}
+
+function syncWeatherAudioVolumes() {
+  const volume = getWeatherAudioElementVolume();
+  activeWeatherAudioSources.forEach((src) => {
+    const element = weatherAudioElements.get(src);
+    if (element) {
+      element.volume = volume;
+    }
+  });
+}
+
+function pauseWeatherAudioElements(resetTime: boolean) {
+  activeWeatherAudioSources.forEach((src) => {
+    const element = weatherAudioElements.get(src);
+    if (!element) {
+      return;
+    }
+
+    element.pause();
+    if (resetTime) {
+      element.currentTime = 0;
+    }
+  });
+}
+
+async function playWeatherAudioSources(resourcePaths: string[]) {
+  const nextSources = Array.from(new Set(resourcePaths.filter(Boolean)));
+  const nextSourceSet = new Set(nextSources);
+
+  activeWeatherAudioSources
+    .filter((src) => !nextSourceSet.has(src))
+    .forEach((src) => {
+      const element = weatherAudioElements.get(src);
+      if (!element) {
+        return;
+      }
+
+      element.pause();
+      element.currentTime = 0;
+    });
+
+  activeWeatherAudioSources = nextSources;
+  syncWeatherAudioVolumes();
+
+  for (const src of activeWeatherAudioSources) {
+    const element = ensureWeatherAudioElement(src);
+    try {
+      await element.play();
+    } catch (error) {
+      console.error(`❌ Weather audio play failed: ${src}`, error);
+    }
+  }
+}
+
+async function syncWeatherAudioPlayback(options: { forceRefresh?: boolean } = {}) {
+  audioManager.setAudioConfig(audioConfig);
+
+  if (audioConfig.sourceType === 'weather') {
+    startupWeather = await audioManager.loadWeatherContext({
+      forceRefresh: options.forceRefresh ?? false,
+    });
+  }
+
+  await playWeatherAudioSources(audioManager.getWeatherResourcePaths());
 }
 
 function createUI() {
@@ -1907,7 +1994,7 @@ function createUI() {
     });
   }
 
-  bindTopBarEvents();
+  bindWeatherAudioEvents();
   bindModeControlEvents();
   bindPermissionEvents();
   setupPermissionChangeListener();
@@ -1916,8 +2003,6 @@ function createUI() {
   renderCategoryNav();
   renderMixerGrid();
   syncSettingsUI();
-  syncPermissionUI();
-  syncHud();
 }
 
 function getIconGlyph(icon: string): string {
@@ -2196,8 +2281,8 @@ function renderPlaylistPlayer() {
   body.replaceChildren(frameWrap, note);
 }
 
-function resolveAudioStatusText(): string {
-  const runningLabel = masterAudioState === 'running' ? '已启动' : masterAudioState === 'paused' ? '已暂停' : '待启动';
+function resolveWeatherAudioStatusText(): string {
+  const runningLabel = weatherAudioState === 'running' ? '已启动' : weatherAudioState === 'paused' ? '已暂停' : '待启动';
   if (audioConfig.sourceType === 'default') {
     return `默认白噪音 · ${runningLabel}`;
   }
@@ -2214,20 +2299,27 @@ function resolveAudioStatusText(): string {
   return `智能天气音 · 自动定位 · ${runningLabel}`;
 }
 
-function syncHud() {
+function resolveWeatherAudioButtonText(): string {
+  return weatherAudioState === 'running' ? '暂停音频' : weatherAudioState === 'paused' ? '恢复音频' : '启动音频';
+}
+
+function syncWeatherAudioUI() {
   const audioModeStatus = document.getElementById('audioModeStatus');
   const audioControlBtn = document.getElementById('audioControlBtn');
-  const selectedCategoryLabel = document.getElementById('selectedCategoryLabel');
-  const activeTrackCount = document.getElementById('activeTrackCount');
-  const favoriteTrackCount = document.getElementById('favoriteTrackCount');
 
   if (audioModeStatus) {
-    audioModeStatus.textContent = resolveAudioStatusText();
+    audioModeStatus.textContent = resolveWeatherAudioStatusText();
   }
 
   if (audioControlBtn) {
-    audioControlBtn.textContent = masterAudioState === 'running' ? '暂停音频' : masterAudioState === 'paused' ? '恢复音频' : '启动音频';
+    audioControlBtn.textContent = resolveWeatherAudioButtonText();
   }
+}
+
+function syncMixerSummaryUI() {
+  const selectedCategoryLabel = document.getElementById('selectedCategoryLabel');
+  const activeTrackCount = document.getElementById('activeTrackCount');
+  const favoriteTrackCount = document.getElementById('favoriteTrackCount');
 
   if (selectedCategoryLabel) {
     selectedCategoryLabel.textContent = getCategory(selectedCategoryId).name;
@@ -2240,8 +2332,6 @@ function syncHud() {
   if (favoriteTrackCount) {
     favoriteTrackCount.textContent = String(Array.from(trackRuntimeState.values()).filter((item) => item.isFavorite).length);
   }
-
-  syncPermissionUI();
 }
 
 function syncPermissionUI() {
@@ -2357,7 +2447,9 @@ function syncSettingsUI() {
   }
 
   renderPlaylistPlayer();
-  syncHud();
+  syncWeatherAudioUI();
+  syncMixerSummaryUI();
+  syncPermissionUI();
 }
 
 function renderCategoryNav() {
@@ -2389,7 +2481,7 @@ function getTrackStatusText(track: AudioMixerTrackWithCategory, state: TrackRunt
   }
 
   if (state.isActive) {
-    return masterAudioState === 'running' ? 'Now Playing' : 'Armed';
+    return state.element && !state.element.paused ? 'Now Playing' : 'Armed';
   }
 
   return 'Tap To Layer';
@@ -2476,7 +2568,7 @@ function renderMixerGrid() {
     })
     .join('');
 
-  syncHud();
+  syncMixerSummaryUI();
 }
 
 function getTrackById(trackId: string): AudioMixerTrackWithCategory {
@@ -2529,75 +2621,37 @@ function stopTrack(trackId: string) {
   }
 }
 
-async function resumeActiveTracks() {
-  const activeTracks = mixerTracks.filter((track) => getTrackRuntimeState(track.id).isActive && track.src);
-  for (const track of activeTracks) {
-    await playTrack(track.id);
-  }
-}
-
-function pauseActiveTracks() {
-  mixerTracks.forEach((track) => {
-    const runtime = getTrackRuntimeState(track.id);
-    if (runtime.isActive && runtime.element) {
-      runtime.element.pause();
-    }
-  });
-}
-
-async function enableMasterAudio() {
-  audioManager.setAudioConfig(audioConfig);
-
-  if (audioConfig.sourceType === 'weather') {
-    startupWeather = await audioManager.loadWeatherContext({
-      forceRefresh: masterAudioState === 'idle',
-    });
-  }
-
-  if (masterAudioState === 'idle') {
+async function enableWeatherAudio() {
+  if (weatherAudioState === 'idle') {
     await audioManager.start();
   } else {
     await audioManager.resume();
   }
 
-  masterAudioState = 'running';
+  await syncWeatherAudioPlayback({
+    forceRefresh: audioConfig.sourceType === 'weather' && weatherAudioState === 'idle',
+  });
 
-  // 自动激活定位天气匹配的自然环境轨道（仅针对有 mp3 源的轨道，无源轨道自动跳过不报错）
-  const weatherTrackIds = audioManager.getWeatherTrackIds(
-    mixerTracks.filter((track) => track.src).map((track) => track.id),
-  );
-  for (const trackId of weatherTrackIds) {
-    const track = mixerTracks.find((t) => t.id === trackId);
-    if (track && track.src) {
-      const runtime = getTrackRuntimeState(trackId);
-      if (!runtime.isActive) {
-        runtime.isActive = true;
-        await playTrack(trackId);
-      }
-    }
-  }
-
-  // 恢复之前手动激活的其他轨道
-  await resumeActiveTracks();
-  syncHud();
-  renderMixerGrid();
+  weatherAudioState = 'running';
+  syncSettingsUI();
+  syncModeUI();
 }
 
-async function pauseMasterAudio() {
+async function pauseWeatherAudio() {
   await audioManager.pause();
-  pauseActiveTracks();
-  masterAudioState = 'paused';
-  syncHud();
-  renderMixerGrid();
+  pauseWeatherAudioElements(false);
+  weatherAudioState = 'paused';
+  syncWeatherAudioUI();
+  syncModeUI();
 }
 
-async function toggleMasterAudio() {
-  if (masterAudioState === 'running') {
-    await pauseMasterAudio();
+async function toggleWeatherAudio() {
+  if (weatherAudioState === 'running') {
+    await pauseWeatherAudio();
     return;
   }
 
-  await enableMasterAudio();
+  await enableWeatherAudio();
 }
 
 async function toggleTrack(trackId: string) {
@@ -2610,15 +2664,13 @@ async function toggleTrack(trackId: string) {
   runtime.isActive = !runtime.isActive;
 
   if (runtime.isActive) {
-    if (masterAudioState !== 'running') {
-      await enableMasterAudio();
-    }
     await playTrack(trackId);
   } else {
     stopTrack(trackId);
   }
 
   renderMixerGrid();
+  syncModeUI();
 }
 
 function updateTrackVolume(trackId: string, volumePercent: number) {
@@ -2644,9 +2696,9 @@ function toggleFavorite(trackId: string) {
   renderMixerGrid();
 }
 
-function bindTopBarEvents() {
+function bindWeatherAudioEvents() {
   document.getElementById('audioControlBtn')?.addEventListener('click', async () => {
-    await toggleMasterAudio();
+    await toggleWeatherAudio();
   });
 }
 
@@ -2826,7 +2878,7 @@ function syncModeUI() {
     if (activeTracks.length > 0) {
       miniIconEl.textContent = getIconGlyph(activeTracks[0].icon);
     } else {
-      miniIconEl.textContent = masterAudioState === 'running' ? '✦' : '◌';
+      miniIconEl.textContent = weatherAudioState === 'running' ? '✦' : '◌';
     }
   }
 
@@ -2957,7 +3009,7 @@ function bindSettingsPanelEvents() {
     renderPlaylistPlayer();
   });
 
-  settingsSaveBtn?.addEventListener('click', () => {
+  settingsSaveBtn?.addEventListener('click', async () => {
     audioConfig = {
       sourceType: getSelectedAudioSourceType(),
       customWeatherParam: customWeatherInput?.value.trim() ?? '',
@@ -2970,6 +3022,15 @@ function bindSettingsPanelEvents() {
     playlistEmbedState = parsePlaylistEmbed(playlistConfig);
 
     audioManager.setAudioConfig(audioConfig);
+    if (weatherAudioState === 'running') {
+      try {
+        await syncWeatherAudioPlayback({
+          forceRefresh: audioConfig.sourceType === 'weather',
+        });
+      } catch (error) {
+        console.error('❌ Weather audio refresh failed:', error);
+      }
+    }
     syncSettingsUI();
 
     if (!playlistEmbedState.error) {
@@ -3049,6 +3110,7 @@ function updateEnergy(energy: number) {
     miniEnergyEl.textContent = `${(energy * 100).toFixed(1)}% FLOW`;
   }
 
+  syncWeatherAudioVolumes();
   audioManager.updateEnergy(energy);
   visualManager?.updateEnergy(energy);
 }

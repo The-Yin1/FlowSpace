@@ -201,11 +201,7 @@ export class AudioManager {
   }
 
   getWeatherTrackIds(availableTrackIds?: Iterable<string>): string[] {
-    const configuredKind =
-      resolveWeatherAudioKindFromText(this.audioConfig.customWeatherParam) ||
-      this.weatherContext?.resolvedWeatherKind ||
-      (this.weatherAmbience === 'rain' ? 'rain' : DEFAULT_WEATHER_AUDIO_KIND);
-    const candidateTrackIds = WEATHER_AUDIO_RULES[configuredKind].trackIds;
+    const candidateTrackIds = WEATHER_AUDIO_RULES[this.resolveConfiguredWeatherKind()].trackIds;
 
     if (!availableTrackIds) {
       return [...candidateTrackIds];
@@ -213,6 +209,10 @@ export class AudioManager {
 
     const allowed = new Set(availableTrackIds);
     return candidateTrackIds.filter((trackId) => allowed.has(trackId));
+  }
+
+  getWeatherResourcePaths(): string[] {
+    return [...WEATHER_AUDIO_RULES[this.resolveConfiguredWeatherKind()].resourceHints];
   }
 
   async start() {
@@ -528,6 +528,18 @@ export class AudioManager {
     }
 
     return DEFAULT_WEATHER_AUDIO_KIND;
+  }
+
+  private resolveConfiguredWeatherKind(): WeatherAudioKind {
+    if (this.audioConfig.sourceType === 'default') {
+      return DEFAULT_WEATHER_AUDIO_KIND;
+    }
+
+    return (
+      resolveWeatherAudioKindFromText(this.audioConfig.customWeatherParam) ||
+      this.weatherContext?.resolvedWeatherKind ||
+      (this.weatherAmbience === 'rain' ? 'rain' : DEFAULT_WEATHER_AUDIO_KIND)
+    );
   }
 
   private resolveAmbienceFromCode(weatherCode: number, windSpeedMps: number): WeatherAmbience {
